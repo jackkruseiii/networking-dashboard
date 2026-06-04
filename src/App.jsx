@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 
 // Calls our own Vercel serverless function — same origin, zero CORS issues.
 // The serverless function calls Google Apps Script from the server side.
@@ -16,27 +16,26 @@ async function postToSheet(type, data) {
   }
 }
 
-const SEED = [
-  {fn:"Don",ln:"Bergin",industry:"Government",company:"Veteran Affairs",linkedin:"https://www.linkedin.com/in/don-bergin/",email:"",rel:"Woodbery",city:"Baltimore",state:"MD",ug:"UNC",grad:"Catholic",status:"Active",lc:"2026-03-20",nc:"2026-06-18",notes:"Linkedin message"},
-  {fn:"Nick",ln:"Breedlove",industry:"Finance",company:"BKK",linkedin:"https://www.linkedin.com/in/nickbreedlove/",email:"",rel:"USNA Classmate",city:"Forth Worth",state:"TX",ug:"USNA",grad:"Harvard",status:"Active",lc:"2026-04-24",nc:"2026-07-23",notes:"Linkedin message"},
-  {fn:"Ted",ln:"Bradfield",industry:"Contractor Defense",company:"",linkedin:"https://www.linkedin.com/in/ted-bradfield-43935727/",email:"",rel:"",city:"",state:"",ug:"",grad:"",status:"Active",lc:"2026-03-20",nc:"2026-06-18",notes:""},
-  {fn:"Dereck",ln:"Brown",industry:"Education",company:"USNA",linkedin:"https://www.linkedin.com/in/dereckbrown/",email:"",rel:"USNA and FAO",city:"Arlington",state:"VA",ug:"USNA",grad:"NPS",status:"Active",lc:"2026-03-05",nc:"2026-06-03",notes:""},
-  {fn:"Cory",ln:"Christensen",industry:"FMS/Security Cooperation",company:"PEO C4I",linkedin:"",email:"cory.c.christensen32.civ@us.navy.mil",rel:"FAO and former A/NAVSEC Brazil",city:"San Diego",state:"CA",ug:"USNA",grad:"N/A",status:"Active",lc:"2025-08-20",nc:"2025-11-18",notes:"Just casual check in and link up"},
-  {fn:"Tim",ln:"Disher",industry:"Education",company:"RETIRED",linkedin:"https://www.linkedin.com/in/timothy-disher-2ba530119/",email:"",rel:"",city:"",state:"",ug:"",grad:"",status:"Active",lc:"2025-10-31",nc:"2026-01-29",notes:""},
-  {fn:"Jay",ln:"Furman",industry:"",company:"",linkedin:"",email:"",rel:"FAO",city:"",state:"TX",ug:"",grad:"",status:"Active",lc:"2026-05-15",nc:"2026-08-13",notes:""},
-  {fn:"Jeff",ln:"Gilbert",industry:"Tech",company:"Independent",linkedin:"https://www.linkedin.com/in/jeffbgilbert/",email:"",rel:"Woodberry",city:"Falls Church",state:"VA",ug:"JMU",grad:"N/A",status:"Active",lc:"2026-04-11",nc:"2026-07-10",notes:"Short email"},
-  {fn:"Jimmy",ln:"Hilton",industry:"Defense Sales",company:"Joint Munitions Command",linkedin:"https://www.linkedin.com/in/jameshilton99/",email:"",rel:"FAO, USNA, old boss",city:"",state:"",ug:"USNA",grad:"",status:"Active",lc:"2024-07-24",nc:"2024-10-22",notes:""},
-  {fn:"Paul",ln:"Ross",industry:"Architecture",company:"DBI Projects",linkedin:"https://www.linkedin.com/in/harrypaulross/",email:"",rel:"Woodberry",city:"Hastings on Hudson",state:"NY",ug:"",grad:"",status:"Active",lc:"2025-07-25",nc:"2025-10-23",notes:""},
-  {fn:"Andrew",ln:"Roy",industry:"Management",company:"HAVOC AI",linkedin:"https://www.linkedin.com/in/andrewroy2001/",email:"",rel:"USNA, friend",city:"",state:"",ug:"",grad:"",status:"Active",lc:"2026-03-26",nc:"2026-06-24",notes:""},
-  {fn:"Patrick",ln:"Sullivan",industry:"Defense",company:"USNA",linkedin:"",email:"",rel:"USNA, friend",city:"Annapolis",state:"",ug:"",grad:"",status:"Active",lc:"2026-04-23",nc:"2026-07-22",notes:""},
-  {fn:"Jared",ln:"Wilhelm",industry:"AI",company:"USNA",linkedin:"https://www.linkedin.com/in/jaredmwilhelm/",email:"",rel:"FAO",city:"Alexandria",state:"VA",ug:"USNA",grad:"",status:"Active",lc:"2025-11-07",nc:"2026-02-05",notes:""},
-  {fn:"Cal",ln:"Worthington",industry:"Defense Sales Biz Dev",company:"Standard Aero",linkedin:"https://www.linkedin.com/in/scott-worthington18/",email:"",rel:"USNA FAO",city:"",state:"",ug:"",grad:"",status:"Active",lc:"2025-02-27",nc:"2025-05-28",notes:""},
-  {fn:"Jean",ln:"Dupin de St. Cyr",industry:"Education and Leadership",company:"CAVU International & Lecturer",linkedin:"https://www.linkedin.com/in/jean-dupin-de-saint-cyr-4b717385/",email:"",rel:"Navy FAO",city:"France",state:"France",ug:"USNA",grad:"NPS",status:"Active",lc:"2026-04-25",nc:"2026-07-24",notes:""},
-  {fn:"Tom",ln:"Kim",industry:"Education",company:"UT Dallas",linkedin:"https://www.linkedin.com/in/tomckim/",email:"",rel:"",city:"Lewisville",state:"TX",ug:"USNA",grad:"",status:"Never Contacted",lc:"",nc:"",notes:"Christian (volunteering)"},
-  {fn:"Angus",ln:"Mccoll",industry:"Education and Fundraising",company:"University of North Texas",linkedin:"https://www.linkedin.com/in/angus-mccoll-0691b18/",email:"",rel:"",city:"Denton",state:"TX",ug:"USNA",grad:"NPS",status:"Never Contacted",lc:"",nc:"",notes:""},
-  {fn:"Todd",ln:"Waldvogel",industry:"Education",company:"TCU",linkedin:"https://www.linkedin.com/in/todd-waldvogel-p-e-b647903/",email:"",rel:"",city:"Ft. Worth",state:"TX",ug:"USAFA",grad:"Texas A&M",status:"Never Contacted",lc:"",nc:"",notes:""},
-  {fn:"Michael",ln:"Grohman",industry:"Education",company:"TCU",linkedin:"https://www.linkedin.com/in/michael-grohman-z/",email:"",rel:"",city:"DFW",state:"TX",ug:"",grad:"Arizona State / U of Charleston",status:"Never Contacted",lc:"",nc:"",notes:"Big Country Vets"},
-];
+// Maps sheet column headers to the short keys the app uses internally
+function mapSheetRow(row) {
+  return {
+    fn:       String(row["First Name"]   || "").trim(),
+    ln:       String(row["Last Name"]    || "").trim(),
+    industry: String(row["Industry"]     || "").trim(),
+    company:  String(row["Company"]      || "").trim(),
+    linkedin: String(row["LinkedIn"]     || "").trim(),
+    email:    String(row["Email"]        || "").trim(),
+    rel:      String(row["Relationship"] || "").trim(),
+    city:     String(row["City"]         || "").trim(),
+    state:    String(row["State"]        || "").trim(),
+    ug:       String(row["Undergrad"]    || "").trim(),
+    grad:     String(row["Grad School"]  || "").trim(),
+    status:   String(row["Status"]       || "Never Contacted").trim(),
+    lc:       String(row["Last Check-in"]  || "").trim(),
+    nc:       String(row["Next Check-in"]  || "").trim(),
+    notes:    String(row["Notes"]        || "").trim(),
+  };
+}
 
 const TODAY = new Date("2026-06-03");
 const THRESHOLD = 90;
@@ -345,7 +344,7 @@ function NewContactModal({ onClose, onAdd }) {
   );
 }
 
-const APP_PASSWORD = "Jamily629!";
+const APP_PASSWORD = "network2026";
 
 function PasswordGate({ onUnlock }) {
   const [input,  setInput]  = useState("");
@@ -405,12 +404,32 @@ function PasswordGate({ onUnlock }) {
 
 export default function NetworkingDashboard() {
   const [unlocked, setUnlocked] = useState(false);
-  const [contacts,     setContacts]     = useState(SEED);
+  const [contacts,     setContacts]     = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [loadError,    setLoadError]    = useState(null);
   const [selected,     setSelected]     = useState(null);
   const [selectedType, setSelectedType] = useState(null);
   const [showNew,      setShowNew]      = useState(false);
   const [query,        setQuery]        = useState("");
   const [sessionNotes, setSessionNotes] = useState({});
+
+  useEffect(() => {
+    fetch("/api/contacts")
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && Array.isArray(data.contacts)) {
+          setContacts(data.contacts.map(mapSheetRow).filter(c => c.fn || c.ln));
+        } else {
+          setLoadError("Could not load contacts from sheet.");
+        }
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Failed to load contacts:", err);
+        setLoadError("Network error loading contacts.");
+        setLoading(false);
+      });
+  }, []);
 
   const { cold, overdue, active } = useMemo(() => {
     const q    = query.toLowerCase().trim();
@@ -437,6 +456,24 @@ export default function NetworkingDashboard() {
   };
 
   if (!unlocked) return <PasswordGate onUnlock={() => setUnlocked(true)} />;
+
+  if (loading) return (
+    <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
+      <div style={{ textAlign:"center", color:"#999" }}>
+        <div style={{ fontSize:24, marginBottom:12 }}>⏳</div>
+        <div style={{ fontSize:14 }}>Loading contacts…</div>
+      </div>
+    </div>
+  );
+
+  if (loadError) return (
+    <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
+      <div style={{ textAlign:"center", color:"#A32D2D" }}>
+        <div style={{ fontSize:24, marginBottom:12 }}>⚠️</div>
+        <div style={{ fontSize:14 }}>{loadError}</div>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ fontFamily:"Georgia,serif", background:"#fafaf8", minHeight:"100vh", paddingBottom:"3rem" }}>
