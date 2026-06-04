@@ -1,18 +1,13 @@
-// api/log.js — Vercel Serverless Function
-// Proxies requests from the React frontend to Google Apps Script.
-// Runs server-side so there are zero CORS restrictions.
+// api/contacts.js — Vercel Serverless Function
+// Reads all contacts from Google Sheet and returns them as JSON.
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
-  }
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
   }
 
   const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
@@ -22,17 +17,18 @@ export default async function handler(req, res) {
   }
 
   try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req.body),
+    const response = await fetch(APPS_SCRIPT_URL, {
+      method: "GET",
       redirect: "follow",
     });
 
-    return res.status(200).json({ success: true });
+    const text = await response.text();
+    const data = JSON.parse(text);
+
+    return res.status(200).json(data);
 
   } catch (err) {
-    console.error("Proxy error:", err);
+    console.error("Contacts fetch error:", err);
     return res.status(500).json({ error: err.message });
   }
 }
