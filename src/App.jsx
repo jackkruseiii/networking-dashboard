@@ -19,21 +19,21 @@ async function postToSheet(type, data) {
 // Maps sheet column headers to the short keys the app uses internally
 function mapSheetRow(row) {
   return {
-    fn:       String(row["First Name"]   || "").trim(),
-    ln:       String(row["Last Name"]    || "").trim(),
-    industry: String(row["Industry"]     || "").trim(),
-    company:  String(row["Company"]      || "").trim(),
-    linkedin: String(row["LinkedIn"]     || "").trim(),
-    email:    String(row["Email"]        || "").trim(),
-    rel:      String(row["Relationship"] || "").trim(),
-    city:     String(row["City"]         || "").trim(),
-    state:    String(row["State"]        || "").trim(),
-    ug:       String(row["Undergrad"]    || "").trim(),
-    grad:     String(row["Grad School"]  || "").trim(),
-    status:   String(row["Status"]       || "Never Contacted").trim(),
-    lc:       String(row["Last Check-in"]  || "").trim(),
-    nc:       String(row["Next Check-in"]  || "").trim(),
-    notes:    String(row["Notes"]        || "").trim(),
+    fn:       String(row["First name"]           || "").trim(),
+    ln:       String(row["Last Name"]            || "").trim(),
+    industry: String(row["Industry"]             || "").trim(),
+    company:  String(row["Company"]              || "").trim(),
+    linkedin: String(row["LinkedIn Profile"]     || "").trim(),
+    email:    String(row["Email"]                || "").trim(),
+    rel:      String(row["Relationship"]         || "").trim(),
+    city:     String(row["City"]                 || "").trim(),
+    state:    String(row["State"]                || "").trim(),
+    ug:       String(row["Undergraduate School"] || "").trim(),
+    grad:     String(row["Graduate School"]      || "").trim(),
+    status:   String(row["Status"]               || "Never Contacted").trim(),
+    lc:       String(row["Last Check-in Date"]   || "").trim(),
+    nc:       String(row["Next Check-in Date"]   || "").trim(),
+    notes:    String(row["Notes"]                || "").trim(),
   };
 }
 
