@@ -345,7 +345,66 @@ function NewContactModal({ onClose, onAdd }) {
   );
 }
 
+const APP_PASSWORD = "network2026";
+
+function PasswordGate({ onUnlock }) {
+  const [input,  setInput]  = useState("");
+  const [error,  setError]  = useState(false);
+  const [shake,  setShake]  = useState(false);
+
+  function attempt() {
+    if (input === APP_PASSWORD) {
+      onUnlock();
+    } else {
+      setError(true);
+      setShake(true);
+      setTimeout(() => setShake(false), 500);
+    }
+  }
+
+  function handleKey(e) {
+    if (e.key === "Enter") attempt();
+  }
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
+      <div style={{
+        background:"#fff", border:"0.5px solid #e0e0de", borderRadius:16,
+        padding:"2.5rem 2rem", width:"min(360px,90vw)", textAlign:"center",
+        transform: shake ? "translateX(-6px)" : "none",
+        transition: shake ? "transform 0.1s ease" : "transform 0.4s ease",
+      }}>
+        <div style={{ fontSize:28, marginBottom:8 }}>🔒</div>
+        <div style={{ fontSize:19, fontWeight:700, color:"#1a1a18", marginBottom:6 }}>Networking Dashboard</div>
+        <div style={{ fontSize:13, color:"#999", marginBottom:24 }}>Enter your password to continue</div>
+        <input
+          type="password"
+          value={input}
+          onChange={e => { setInput(e.target.value); setError(false); }}
+          onKeyDown={handleKey}
+          placeholder="Password"
+          autoFocus
+          style={{
+            width:"100%", fontSize:14, padding:"9px 12px",
+            border: error ? "1px solid #E24B4A" : "0.5px solid #e0e0de",
+            borderRadius:8, background:"#f9f9f7", color:"#222",
+            fontFamily:"inherit", outline:"none", boxSizing:"border-box",
+            marginBottom: error ? 6 : 16,
+          }}
+        />
+        {error && <div style={{ fontSize:12, color:"#A32D2D", marginBottom:12 }}>Incorrect password</div>}
+        <button
+          onClick={attempt}
+          style={{ width:"100%", fontSize:13, fontWeight:600, padding:"9px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>
+          Enter
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function NetworkingDashboard() {
+  const [unlocked, setUnlocked] = useState(false);
   const [contacts,     setContacts]     = useState(SEED);
   const [selected,     setSelected]     = useState(null);
   const [selectedType, setSelectedType] = useState(null);
@@ -376,6 +435,8 @@ export default function NetworkingDashboard() {
     overdue: { background:"#FAEEDA", color:"#854F0B" },
     active:  { background:"#EAF3DE", color:"#3B6D11" },
   };
+
+  if (!unlocked) return <PasswordGate onUnlock={() => setUnlocked(true)} />;
 
   return (
     <div style={{ fontFamily:"Georgia,serif", background:"#fafaf8", minHeight:"100vh", paddingBottom:"3rem" }}>
