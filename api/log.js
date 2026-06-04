@@ -1,3 +1,7 @@
+// api/log.js — Vercel Serverless Function
+// Proxies requests from the React frontend to Google Apps Script.
+// Runs server-side so there are zero CORS restrictions.
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -18,24 +22,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const body = req.body;
-
-    const response = await fetch(APPS_SCRIPT_URL, {
+    await fetch(APPS_SCRIPT_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(req.body),
       redirect: "follow",
     });
 
-    const text = await response.text();
-
-    return res.status(200).json({ 
-      success: true, 
-      apps_script_status: response.status,
-      apps_script_response: text
-    });
+    return res.status(200).json({ success: true });
 
   } catch (err) {
+    console.error("Proxy error:", err);
     return res.status(500).json({ error: err.message });
   }
 }
