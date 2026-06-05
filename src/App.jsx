@@ -87,7 +87,7 @@ function lcCls(d, type) {
 }
 
 // ─── Password gate ────────────────────────────────────────────────────────
-const APP_PASSWORD = "Jamily629!";
+const APP_PASSWORD = "network2026";
 
 function PasswordGate({ onUnlock }) {
   const [input, setInput] = useState("");
@@ -191,6 +191,36 @@ function ContactCard({ c, idx, type, onOpen, sessionNotes, setSessionNotes }) {
   );
 }
 
+// ─── Reusable edit field components (must be outside DetailPanel to avoid focus loss) ───
+const detailInp = { fontSize:13, padding:"7px 10px", border:"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box" };
+const detailLbl = { fontSize:10, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:3, display:"block" };
+
+function DetailField({ label, k, type="text", form, setForm, editing }) {
+  return (
+    <div style={{ background:"#f9f9f7", borderRadius:8, padding:"8px 10px" }}>
+      <label style={detailLbl}>{label}</label>
+      {editing
+        ? <input type={type} value={form[k]||""} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))} style={detailInp} />
+        : <div style={{ fontSize:13, color:form[k]?"#222":"#bbb", fontStyle:form[k]?"normal":"italic" }}>{form[k]||"—"}</div>
+      }
+    </div>
+  );
+}
+
+function DetailSelectField({ label, k, options, form, setForm, editing }) {
+  return (
+    <div style={{ background:"#f9f9f7", borderRadius:8, padding:"8px 10px" }}>
+      <label style={detailLbl}>{label}</label>
+      {editing
+        ? <select value={form[k]||""} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))} style={{ ...detailInp, cursor:"pointer" }}>
+            {options.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        : <div style={{ fontSize:13, color:"#222" }}>{form[k]||"—"}</div>
+      }
+    </div>
+  );
+}
+
 // ─── Detail / Edit panel ──────────────────────────────────────────────────
 function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, setSessionNotes }) {
   const [editing,  setEditing]  = useState(false);
@@ -231,34 +261,7 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
     setTimeout(() => setNoteSaved(false), 2000);
   }
 
-  const inp = { fontSize:13, padding:"7px 10px", border:"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box" };
-  const lbl = { fontSize:10, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:3, display:"block" };
 
-  function Field({ label, k, type="text" }) {
-    return (
-      <div style={{ background:"#f9f9f7", borderRadius:8, padding:"8px 10px" }}>
-        <label style={lbl}>{label}</label>
-        {editing
-          ? <input type={type} value={form[k]||""} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))} style={inp} />
-          : <div style={{ fontSize:13, color:form[k]?"#222":"#bbb", fontStyle:form[k]?"normal":"italic" }}>{form[k]||"—"}</div>
-        }
-      </div>
-    );
-  }
-
-  function SelectField({ label, k, options }) {
-    return (
-      <div style={{ background:"#f9f9f7", borderRadius:8, padding:"8px 10px" }}>
-        <label style={lbl}>{label}</label>
-        {editing
-          ? <select value={form[k]||""} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))} style={{ ...inp, cursor:"pointer" }}>
-              {options.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          : <div style={{ fontSize:13, color:"#222" }}>{form[k]||"—"}</div>
-        }
-      </div>
-    );
-  }
 
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
@@ -302,18 +305,18 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
         <div style={{ marginBottom:18 }}>
           <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>Details</div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-            <SelectField label="Status" k="status" options={["Never Contacted","Active","Inactive"]} />
-            <Field label="Industry"      k="industry" />
-            <Field label="Company"       k="company"  />
-            <Field label="Relationship"  k="rel"      />
-            <Field label="City"          k="city"     />
-            <Field label="State"         k="state"    />
-            <Field label="Undergrad"     k="ug"       />
-            <Field label="Grad school"   k="grad"     />
-            <Field label="LinkedIn"      k="linkedin" />
-            <Field label="Email"         k="email"    type="email" />
-            <Field label="Last check-in" k="lc"       type="date"  />
-            <Field label="Next check-in" k="nc"       type="date"  />
+            <DetailSelectField label="Status"       k="status"   options={["Never Contacted","Active","Inactive"]} form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Industry"      k="industry" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Company"       k="company"  form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Relationship"  k="rel"      form={form} setForm={setForm} editing={editing} />
+            <DetailField label="City"          k="city"     form={form} setForm={setForm} editing={editing} />
+            <DetailField label="State"         k="state"    form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Undergrad"     k="ug"       form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Grad school"   k="grad"     form={form} setForm={setForm} editing={editing} />
+            <DetailField label="LinkedIn"      k="linkedin" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Email"         k="email"    type="email" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Last check-in" k="lc"       type="date"  form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Next check-in" k="nc"       type="date"  form={form} setForm={setForm} editing={editing} />
           </div>
         </div>
 
