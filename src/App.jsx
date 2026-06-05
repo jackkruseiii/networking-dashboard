@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 
-// Calls our own Vercel serverless function — same origin, zero CORS issues.
-// The serverless function calls Google Apps Script from the server side.
+// ─── API helpers ──────────────────────────────────────────────────────────
 async function postToSheet(type, data) {
   try {
     const res = await fetch("/api/log", {
@@ -10,15 +9,24 @@ async function postToSheet(type, data) {
       body: JSON.stringify({ type, data }),
     });
     return res.ok;
-  } catch (err) {
-    console.error("Sheet sync failed:", err);
-    return false;
-  }
+  } catch (err) { console.error("Sheet sync failed:", err); return false; }
 }
 
-// Maps sheet column headers to the short keys the app uses internally
+async function updateContact(data) {
+  try {
+    const res = await fetch("/api/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "update_contact", data }),
+    });
+    return res.ok;
+  } catch (err) { console.error("Update failed:", err); return false; }
+}
+
+// ─── Sheet row mapper ─────────────────────────────────────────────────────
 function mapSheetRow(row) {
   return {
+    id:       String(row["ID"]                   || "").trim(),
     fn:       String(row["First name"]           || "").trim(),
     ln:       String(row["Last Name"]            || "").trim(),
     industry: String(row["Industry"]             || "").trim(),
@@ -37,7 +45,17 @@ function mapSheetRow(row) {
   };
 }
 
-const TODAY = new Date("2026-06-03");
+function mapInteractionRow(row) {
+  return {
+    timestamp: String(row["Timestamp"]  || row["Logged At"] || "").trim(),
+    firstName: String(row["First Name"] || "").trim(),
+    lastName:  String(row["Last Name"]  || "").trim(),
+    note:      String(row["Note"]       || "").trim(),
+  };
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────
+const TODAY     = new Date();
 const THRESHOLD = 90;
 const AV = {
   cold:    { bg:"#E6F1FB", color:"#0C447C" },
@@ -51,9 +69,15 @@ const BADGE = {
   recent:  { background:"#EAF3DE", border:"1px solid #97C459", color:"#3B6D11" },
 };
 
-function pd(s) { if (!s) return null; const d = new Date(s); return isNaN(d) ? null : d; }
-function ds(d) { return Math.floor((TODAY - d) / 86400000); }
-function fd(d) { return d.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }); }
+function pd(s) {
+  if (!s) return null;
+  // Handle ISO date strings from sheets (e.g. "2026-03-20T03:00:00.000Z")
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+function ds(d)  { return Math.floor((TODAY - d) / 86400000); }
+function fd(d)  { return d.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }); }
+function fds(d) { return d.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric", hour:"2-digit", minute:"2-digit" }); }
 function ini(c) { return ((c.fn||"").charAt(0) + (c.ln||"").charAt(0)).toUpperCase() || "?"; }
 function lcCls(d, type) {
   if (!d) return "never";
@@ -62,13 +86,39 @@ function lcCls(d, type) {
   return ds(d) >= THRESHOLD ? "overdue" : "recent";
 }
 
-function LastContactBadge({ c, type }) {
-  const d = pd(c.lc);
-  if (!d) return (
-    <div style={{ fontSize:11, padding:"5px 9px", borderRadius:7, ...BADGE.never, width:"fit-content", marginBottom:9 }}>
-      No interaction on record
+// ─── Password gate ────────────────────────────────────────────────────────
+const APP_PASSWORD = "network2026";
+
+function PasswordGate({ onUnlock }) {
+  const [input, setInput] = useState("");
+  const [error, setError] = useState(false);
+  const [shake, setShake] = useState(false);
+
+  function attempt() {
+    if (input === APP_PASSWORD) { onUnlock(); }
+    else { setError(true); setShake(true); setTimeout(() => setShake(false), 500); }
+  }
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
+      <div style={{ background:"#fff", border:"0.5px solid #e0e0de", borderRadius:16, padding:"2.5rem 2rem", width:"min(360px,90vw)", textAlign:"center", transform:shake?"translateX(-6px)":"none", transition:shake?"transform 0.1s ease":"transform 0.4s ease" }}>
+        <div style={{ fontSize:28, marginBottom:8 }}>🔒</div>
+        <div style={{ fontSize:19, fontWeight:700, color:"#1a1a18", marginBottom:6 }}>Networking Dashboard</div>
+        <div style={{ fontSize:13, color:"#999", marginBottom:24 }}>Enter your password to continue</div>
+        <input type="password" value={input} onChange={e => { setInput(e.target.value); setError(false); }}
+          onKeyDown={e => e.key === "Enter" && attempt()} placeholder="Password" autoFocus
+          style={{ width:"100%", fontSize:14, padding:"9px 12px", border:error?"1px solid #E24B4A":"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:error?6:16 }} />
+        {error && <div style={{ fontSize:12, color:"#A32D2D", marginBottom:12 }}>Incorrect password</div>}
+        <button onClick={attempt} style={{ width:"100%", fontSize:13, fontWeight:600, padding:"9px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>Enter</button>
+      </div>
     </div>
   );
+}
+
+// ─── Last contact badge ───────────────────────────────────────────────────
+function LastContactBadge({ c, type }) {
+  const d = pd(c.lc);
+  if (!d) return <div style={{ fontSize:11, padding:"5px 9px", borderRadius:7, ...BADGE.never, width:"fit-content", marginBottom:9 }}>No interaction on record</div>;
   const days  = ds(d);
   const label = days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
   return (
@@ -79,38 +129,30 @@ function LastContactBadge({ c, type }) {
   );
 }
 
+// ─── Contact card ─────────────────────────────────────────────────────────
 function ContactCard({ c, idx, type, onOpen, sessionNotes, setSessionNotes }) {
-  const key = `${type}-${c.fn}-${c.ln}-${idx}`;
-  const av  = AV[type];
-  const loc = [c.city, c.state].filter(Boolean).join(", ");
+  const key  = `${type}-${c.id||c.fn}-${c.ln}-${idx}`;
+  const av   = AV[type];
+  const loc  = [c.city, c.state].filter(Boolean).join(", ");
   const [showSave, setShowSave] = useState(false);
   const [saved,    setSaved]    = useState(false);
   const [syncing,  setSyncing]  = useState(false);
   const note = sessionNotes[key] || "";
 
   async function handleSaveNote() {
-    setShowSave(false);
-    setSyncing(true);
-    const ok = await postToSheet("note", {
-      firstName: c.fn,
-      lastName:  c.ln,
-      note:      sessionNotes[key] || "",
-      timestamp: new Date().toISOString(),
-    });
-    setSyncing(false);
-    setSaved(true);
+    setShowSave(false); setSyncing(true);
+    await postToSheet("note", { firstName:c.fn, lastName:c.ln, note:sessionNotes[key]||"", timestamp:new Date().toISOString() });
+    setSyncing(false); setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
 
   return (
     <div style={{ background:"#fff", border:"0.5px solid #e0e0de", borderRadius:12, padding:"14px 16px", marginBottom:10 }}
-      onMouseEnter={e => e.currentTarget.style.borderColor = "#bbb"}
-      onMouseLeave={e => e.currentTarget.style.borderColor = "#e0e0de"}>
+      onMouseEnter={e => e.currentTarget.style.borderColor="#bbb"}
+      onMouseLeave={e => e.currentTarget.style.borderColor="#e0e0de"}>
 
       <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:9, cursor:"pointer" }} onClick={() => onOpen(c, type)}>
-        <div style={{ width:34, height:34, minWidth:34, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:600, background:av.bg, color:av.color }}>
-          {ini(c)}
-        </div>
+        <div style={{ width:34, height:34, minWidth:34, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:600, background:av.bg, color:av.color }}>{ini(c)}</div>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:14, fontWeight:600, lineHeight:1.2, marginBottom:2 }}>{c.fn} {c.ln}</div>
           <div style={{ fontSize:11, color:"#777" }}>{c.rel || (c.company || "—")}</div>
@@ -135,35 +177,32 @@ function ContactCard({ c, idx, type, onOpen, sessionNotes, setSessionNotes }) {
 
       {c.notes && (
         <div style={{ fontSize:11, color:"#666", marginBottom:8, padding:"5px 8px", background:"#f9f9f7", borderRadius:6, borderLeft:"2px solid #ddd", lineHeight:1.5 }}>
-          <div style={{ fontSize:10, color:"#999", marginBottom:2 }}>Prior note</div>
-          {c.notes}
+          <div style={{ fontSize:10, color:"#999", marginBottom:2 }}>Prior note</div>{c.notes}
         </div>
       )}
 
-      <textarea
-        value={note}
+      <textarea value={note}
         onChange={e => { setSessionNotes(p => ({ ...p, [key]: e.target.value })); setShowSave(true); }}
-        onFocus={() => setShowSave(true)}
-        placeholder="Log a new note…"
-        rows={2}
-        style={{ width:"100%", fontSize:12, padding:"7px 9px", border:"0.5px solid #e0e0de", borderRadius:7, resize:"vertical", minHeight:50, fontFamily:"inherit", background:"#f9f9f7", color:"#222", lineHeight:1.5, outline:"none", boxSizing:"border-box" }}
-      />
-      {showSave && (
-        <button onClick={handleSaveNote} disabled={syncing} style={{ marginTop:5, fontSize:11, padding:"3px 10px", borderRadius:6, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>
-          {syncing ? "Saving…" : "Save note"}
-        </button>
-      )}
+        onFocus={() => setShowSave(true)} placeholder="Log a new note…" rows={2}
+        style={{ width:"100%", fontSize:12, padding:"7px 9px", border:"0.5px solid #e0e0de", borderRadius:7, resize:"vertical", minHeight:50, fontFamily:"inherit", background:"#f9f9f7", color:"#222", lineHeight:1.5, outline:"none", boxSizing:"border-box" }} />
+      {showSave && <button onClick={handleSaveNote} disabled={syncing} style={{ marginTop:5, fontSize:11, padding:"3px 10px", borderRadius:6, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>{syncing?"Saving…":"Save note"}</button>}
       {saved && <div style={{ fontSize:10, color:"#3B6D11", marginTop:3 }}>✓ Saved to sheet</div>}
     </div>
   );
 }
 
-function DetailPanel({ c, type, onClose, sessionNotes, setSessionNotes }) {
-  const [saved,   setSaved]   = useState(false);
-  const [syncing, setSyncing] = useState(false);
+// ─── Detail / Edit panel ──────────────────────────────────────────────────
+function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, setSessionNotes }) {
+  const [editing,  setEditing]  = useState(false);
+  const [form,     setForm]     = useState({ ...c });
+  const [saving,   setSaving]   = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+  const [noteSyncing, setNoteSyncing] = useState(false);
+
   if (!c) return null;
   const av  = AV[type] || AV.active;
-  const d   = pd(c.lc), nd = pd(c.nc);
+  const d   = pd(editing ? form.lc : c.lc);
+  const nd  = pd(editing ? form.nc : c.nc);
   const loc = [c.city, c.state].filter(Boolean).join(", ");
   const cls = lcCls(d, type);
   const days = d ? ds(d) : null;
@@ -171,92 +210,149 @@ function DetailPanel({ c, type, onClose, sessionNotes, setSessionNotes }) {
   const noteKey = `detail-${c.fn}-${c.ln}`;
   const note    = sessionNotes[noteKey] || "";
 
-  async function handleSaveNote() {
-    setSyncing(true);
-    await postToSheet("note", {
-      firstName: c.fn,
-      lastName:  c.ln,
-      note,
-      timestamp: new Date().toISOString(),
-    });
-    setSyncing(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  // Filter interactions for this contact
+  const history = interactions
+    .filter(i => i.firstName.toLowerCase() === c.fn.toLowerCase() && i.lastName.toLowerCase() === c.ln.toLowerCase())
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  async function handleSaveEdit() {
+    setSaving(true);
+    await updateContact(form);
+    setSaving(false);
+    setEditing(false);
+    onSaved(form);
   }
 
-  function InfoItem({ label, value }) {
+  async function handleSaveNote() {
+    setNoteSyncing(true);
+    await postToSheet("note", { firstName:c.fn, lastName:c.ln, note, timestamp:new Date().toISOString() });
+    setNoteSyncing(false);
+    setNoteSaved(true);
+    setTimeout(() => setNoteSaved(false), 2000);
+  }
+
+  const inp = { fontSize:13, padding:"7px 10px", border:"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box" };
+  const lbl = { fontSize:10, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:3, display:"block" };
+
+  function Field({ label, k, type="text" }) {
     return (
       <div style={{ background:"#f9f9f7", borderRadius:8, padding:"8px 10px" }}>
-        <div style={{ fontSize:10, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:2 }}>{label}</div>
-        <div style={{ fontSize:13, color:value ? "#222" : "#bbb", fontStyle:value ? "normal" : "italic" }}>{value || "—"}</div>
+        <label style={lbl}>{label}</label>
+        {editing
+          ? <input type={type} value={form[k]||""} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))} style={inp} />
+          : <div style={{ fontSize:13, color:form[k]?"#222":"#bbb", fontStyle:form[k]?"normal":"italic" }}>{form[k]||"—"}</div>
+        }
+      </div>
+    );
+  }
+
+  function SelectField({ label, k, options }) {
+    return (
+      <div style={{ background:"#f9f9f7", borderRadius:8, padding:"8px 10px" }}>
+        <label style={lbl}>{label}</label>
+        {editing
+          ? <select value={form[k]||""} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))} style={{ ...inp, cursor:"pointer" }}>
+              {options.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          : <div style={{ fontSize:13, color:"#222" }}>{form[k]||"—"}</div>
+        }
       </div>
     );
   }
 
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:16, border:"0.5px solid #e0e0de", width:"min(560px,100%)", maxHeight:"85vh", overflowY:"auto", padding:24 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:16, border:"0.5px solid #e0e0de", width:"min(580px,100%)", maxHeight:"88vh", overflowY:"auto", padding:24 }}>
 
+        {/* Header */}
         <div style={{ display:"flex", alignItems:"flex-start", gap:14, marginBottom:18 }}>
-          <div style={{ width:52, height:52, minWidth:52, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:600, background:av.bg, color:av.color }}>{ini(c)}</div>
+          <div style={{ width:52, height:52, minWidth:52, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:600, background:av.bg, color:av.color }}>{ini(editing?form:c)}</div>
           <div style={{ flex:1 }}>
-            <div style={{ fontSize:20, fontWeight:600, marginBottom:3 }}>{c.fn} {c.ln}</div>
+            <div style={{ fontSize:20, fontWeight:600, marginBottom:3 }}>{editing ? `${form.fn} ${form.ln}` : `${c.fn} ${c.ln}`}</div>
             <div style={{ fontSize:13, color:"#777" }}>{c.rel || (c.company || "—")}</div>
           </div>
-          <button onClick={onClose} style={{ background:"transparent", border:"0.5px solid #ccc", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:"#666" }}>✕ Close</button>
+          <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+            {!editing && (
+              <button onClick={() => setEditing(true)} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>✏️ Edit</button>
+            )}
+            {editing && (
+              <>
+                <button onClick={handleSaveEdit} disabled={saving} style={{ fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:7, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>{saving?"Saving…":"Save"}</button>
+                <button onClick={() => { setEditing(false); setForm({ ...c }); }} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
+              </>
+            )}
+            <button onClick={onClose} style={{ background:"transparent", border:"0.5px solid #ccc", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:"#666" }}>✕</button>
+          </div>
         </div>
 
+        {/* Last contact badge */}
         <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:12, padding:"5px 10px", borderRadius:8, marginBottom:16, ...BADGE[cls], width:"fit-content" }}>
           {d ? <><span style={{ fontWeight:500 }}>Last contact: {fd(d)}</span><span style={{ opacity:.75 }}>— {dl}</span></> : <span>No interaction on record</span>}
         </div>
 
-        {(c.linkedin || c.email) && (
+        {/* Links */}
+        {(c.linkedin || c.email) && !editing && (
           <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
             {c.linkedin && <a href={c.linkedin} target="_blank" rel="noreferrer" style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>LinkedIn ↗</a>}
             {c.email    && <a href={`mailto:${c.email}`} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>{c.email}</a>}
           </div>
         )}
 
+        {/* Details grid */}
         <div style={{ marginBottom:18 }}>
           <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>Details</div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-            <InfoItem label="Status"        value={c.status}   />
-            <InfoItem label="Industry"      value={c.industry} />
-            <InfoItem label="Company"       value={c.company}  />
-            <InfoItem label="Location"      value={loc}        />
-            <InfoItem label="Undergrad"     value={c.ug}       />
-            <InfoItem label="Grad school"   value={c.grad}     />
-            <InfoItem label="Last check-in" value={d  ? fd(d)  : ""} />
-            <InfoItem label="Next check-in" value={nd ? fd(nd) : ""} />
+            <SelectField label="Status" k="status" options={["Never Contacted","Active","Inactive"]} />
+            <Field label="Industry"      k="industry" />
+            <Field label="Company"       k="company"  />
+            <Field label="Relationship"  k="rel"      />
+            <Field label="City"          k="city"     />
+            <Field label="State"         k="state"    />
+            <Field label="Undergrad"     k="ug"       />
+            <Field label="Grad school"   k="grad"     />
+            <Field label="LinkedIn"      k="linkedin" />
+            <Field label="Email"         k="email"    type="email" />
+            <Field label="Last check-in" k="lc"       type="date"  />
+            <Field label="Next check-in" k="nc"       type="date"  />
           </div>
         </div>
 
-        {c.notes && (
-          <div style={{ marginBottom:18 }}>
-            <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>Prior note</div>
-            <div style={{ fontSize:13, color:"#555", padding:"8px 12px", background:"#f9f9f7", borderRadius:8, borderLeft:"2px solid #ddd", lineHeight:1.6 }}>{c.notes}</div>
-          </div>
-        )}
-
-        <div>
+        {/* Log a note */}
+        <div style={{ marginBottom:18 }}>
           <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>Log a note</div>
-          <textarea
-            value={note}
-            onChange={e => setSessionNotes(p => ({ ...p, [noteKey]: e.target.value }))}
-            placeholder="Add a note about this interaction…"
-            rows={3}
-            style={{ width:"100%", fontSize:13, padding:"8px 10px", border:"0.5px solid #e0e0de", borderRadius:8, resize:"vertical", minHeight:70, fontFamily:"inherit", background:"#f9f9f7", color:"#222", lineHeight:1.5, outline:"none", boxSizing:"border-box" }}
-          />
-          <button onClick={handleSaveNote} disabled={syncing} style={{ marginTop:6, fontSize:12, padding:"5px 14px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>
-            {syncing ? "Saving…" : "Save note"}
+          <textarea value={note} onChange={e => setSessionNotes(p => ({ ...p, [noteKey]: e.target.value }))}
+            placeholder="Add a note about this interaction…" rows={3}
+            style={{ width:"100%", fontSize:13, padding:"8px 10px", border:"0.5px solid #e0e0de", borderRadius:8, resize:"vertical", minHeight:70, fontFamily:"inherit", background:"#f9f9f7", color:"#222", lineHeight:1.5, outline:"none", boxSizing:"border-box" }} />
+          <button onClick={handleSaveNote} disabled={noteSyncing} style={{ marginTop:6, fontSize:12, padding:"5px 14px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>
+            {noteSyncing ? "Saving…" : "Save note"}
           </button>
-          {saved && <span style={{ fontSize:11, color:"#3B6D11", marginLeft:8 }}>✓ Saved to sheet</span>}
+          {noteSaved && <span style={{ fontSize:11, color:"#3B6D11", marginLeft:8 }}>✓ Saved to sheet</span>}
+        </div>
+
+        {/* Interaction history */}
+        <div>
+          <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>
+            Interaction history {history.length > 0 && <span style={{ fontWeight:400 }}>({history.length})</span>}
+          </div>
+          {history.length === 0
+            ? <div style={{ fontSize:13, color:"#bbb", fontStyle:"italic" }}>No interactions logged yet.</div>
+            : history.map((h, i) => {
+                const d = pd(h.timestamp);
+                return (
+                  <div key={i} style={{ padding:"10px 12px", background:"#f9f9f7", borderRadius:8, marginBottom:8, borderLeft:"3px solid #e0e0de" }}>
+                    <div style={{ fontSize:11, color:"#999", marginBottom:4 }}>{d ? fds(d) : h.timestamp}</div>
+                    <div style={{ fontSize:13, color:"#333", lineHeight:1.5 }}>{h.note}</div>
+                  </div>
+                );
+              })
+          }
         </div>
       </div>
     </div>
   );
 }
 
+// ─── New contact modal ────────────────────────────────────────────────────
 function NewContactModal({ onClose, onAdd }) {
   const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", ug:"", grad:"", lc:"", nc:"", notes:"" };
   const [form,    setForm]    = useState(empty);
@@ -270,7 +366,7 @@ function NewContactModal({ onClose, onAdd }) {
     if (!form.fn.trim()) errs.fn = "Required";
     if (!form.ln.trim()) errs.ln = "Required";
     if (Object.keys(errs).length) { setErrors(errs); return; }
-    const newContact = { ...form, fn: form.fn.trim(), ln: form.ln.trim() };
+    const newContact = { ...form, fn:form.fn.trim(), ln:form.ln.trim() };
     onAdd(newContact);
     setSyncing(true);
     await postToSheet("new_contact", newContact);
@@ -286,7 +382,7 @@ function NewContactModal({ onClose, onAdd }) {
       <div style={{ display:"flex", flexDirection:"column" }}>
         <label style={lbl}>{label}</label>
         <input type={type} value={form[k]} onChange={e => set(k, e.target.value)} placeholder={placeholder}
-          style={{ ...inp, borderColor: errors[k] ? "#E24B4A" : "#e0e0de" }} />
+          style={{ ...inp, borderColor:errors[k]?"#E24B4A":"#e0e0de" }} />
         {errors[k] && <div style={{ fontSize:11, color:"#A32D2D", marginTop:2 }}>{errors[k]}</div>}
       </div>
     );
@@ -295,15 +391,10 @@ function NewContactModal({ onClose, onAdd }) {
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
       <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:16, border:"0.5px solid #e0e0de", width:"min(580px,100%)", maxHeight:"90vh", overflowY:"auto", padding:24 }}>
-
         <div style={{ display:"flex", alignItems:"flex-start", marginBottom:20 }}>
-          <div>
-            <div style={{ fontSize:19, fontWeight:600, marginBottom:3 }}>New contact</div>
-            <div style={{ fontSize:13, color:"#777" }}>Add someone to your network</div>
-          </div>
+          <div><div style={{ fontSize:19, fontWeight:600, marginBottom:3 }}>New contact</div><div style={{ fontSize:13, color:"#777" }}>Add someone to your network</div></div>
           <button onClick={onClose} style={{ marginLeft:"auto", background:"transparent", border:"0.5px solid #ccc", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:"#666" }}>✕ Close</button>
         </div>
-
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
           <Field label="First name *" k="fn"       placeholder="Jane" />
           <Field label="Last name *"  k="ln"       placeholder="Smith" />
@@ -327,84 +418,24 @@ function NewContactModal({ onClose, onAdd }) {
           <Field label="Next check-in" k="nc"       type="date" />
           <div style={{ gridColumn:"1/-1", display:"flex", flexDirection:"column" }}>
             <label style={lbl}>Notes</label>
-            <textarea value={form.notes} onChange={e => set("notes", e.target.value)}
-              placeholder="How you know them, talking points…" rows={3}
+            <textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="How you know them, talking points…" rows={3}
               style={{ ...inp, resize:"vertical", minHeight:64 }} />
           </div>
         </div>
-
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end", paddingTop:12, borderTop:"0.5px solid #eee" }}>
           <button onClick={onClose} style={{ fontSize:13, padding:"7px 16px", borderRadius:8, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
-          <button onClick={submit} disabled={syncing} style={{ fontSize:13, fontWeight:500, padding:"7px 18px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>
-            {syncing ? "Saving…" : "Add contact"}
-          </button>
+          <button onClick={submit} disabled={syncing} style={{ fontSize:13, fontWeight:500, padding:"7px 18px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>{syncing?"Saving…":"Add contact"}</button>
         </div>
       </div>
     </div>
   );
 }
 
-const APP_PASSWORD = "Jamily629!";
-
-function PasswordGate({ onUnlock }) {
-  const [input,  setInput]  = useState("");
-  const [error,  setError]  = useState(false);
-  const [shake,  setShake]  = useState(false);
-
-  function attempt() {
-    if (input === APP_PASSWORD) {
-      onUnlock();
-    } else {
-      setError(true);
-      setShake(true);
-      setTimeout(() => setShake(false), 500);
-    }
-  }
-
-  function handleKey(e) {
-    if (e.key === "Enter") attempt();
-  }
-
-  return (
-    <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
-      <div style={{
-        background:"#fff", border:"0.5px solid #e0e0de", borderRadius:16,
-        padding:"2.5rem 2rem", width:"min(360px,90vw)", textAlign:"center",
-        transform: shake ? "translateX(-6px)" : "none",
-        transition: shake ? "transform 0.1s ease" : "transform 0.4s ease",
-      }}>
-        <div style={{ fontSize:28, marginBottom:8 }}>🔒</div>
-        <div style={{ fontSize:19, fontWeight:700, color:"#1a1a18", marginBottom:6 }}>Networking Dashboard</div>
-        <div style={{ fontSize:13, color:"#999", marginBottom:24 }}>Enter your password to continue</div>
-        <input
-          type="password"
-          value={input}
-          onChange={e => { setInput(e.target.value); setError(false); }}
-          onKeyDown={handleKey}
-          placeholder="Password"
-          autoFocus
-          style={{
-            width:"100%", fontSize:14, padding:"9px 12px",
-            border: error ? "1px solid #E24B4A" : "0.5px solid #e0e0de",
-            borderRadius:8, background:"#f9f9f7", color:"#222",
-            fontFamily:"inherit", outline:"none", boxSizing:"border-box",
-            marginBottom: error ? 6 : 16,
-          }}
-        />
-        {error && <div style={{ fontSize:12, color:"#A32D2D", marginBottom:12 }}>Incorrect password</div>}
-        <button
-          onClick={attempt}
-          style={{ width:"100%", fontSize:13, fontWeight:600, padding:"9px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>
-          Enter
-        </button>
-      </div>
-    </div>
-  );
-}
-
+// ─── Main dashboard ───────────────────────────────────────────────────────
 export default function NetworkingDashboard() {
-  const [unlocked, setUnlocked] = useState(false);
+  const [unlocked,     setUnlocked]     = useState(false);
   const [contacts,     setContacts]     = useState([]);
+  const [interactions, setInteractions] = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [loadError,    setLoadError]    = useState(null);
   const [selected,     setSelected]     = useState(null);
@@ -414,32 +445,28 @@ export default function NetworkingDashboard() {
   const [sessionNotes, setSessionNotes] = useState({});
 
   useEffect(() => {
+    if (!unlocked) return;
     fetch("/api/contacts")
       .then(r => r.json())
       .then(data => {
-        if (data.success && Array.isArray(data.contacts)) {
-          setContacts(data.contacts.map(mapSheetRow).filter(c => c.fn || c.ln));
+        if (data.success) {
+          setContacts((data.contacts || []).map(mapSheetRow).filter(c => c.fn || c.ln));
+          setInteractions((data.interactions || []).map(mapInteractionRow));
         } else {
           setLoadError("Could not load contacts from sheet.");
         }
         setLoading(false);
       })
-      .catch(err => {
-        console.error("Failed to load contacts:", err);
-        setLoadError("Network error loading contacts.");
-        setLoading(false);
-      });
-  }, []);
+      .catch(err => { console.error(err); setLoadError("Network error loading contacts."); setLoading(false); });
+  }, [unlocked]);
 
   const { cold, overdue, active } = useMemo(() => {
     const q    = query.toLowerCase().trim();
-    const list = q
-      ? contacts.filter(c => [c.fn,c.ln,c.company,c.industry,c.rel,c.city,c.state,c.notes].join(" ").toLowerCase().includes(q))
-      : contacts;
+    const list = q ? contacts.filter(c => [c.fn,c.ln,c.company,c.industry,c.rel,c.city,c.state,c.notes].join(" ").toLowerCase().includes(q)) : contacts;
     const cold    = list.filter(c => c.status === "Never Contacted");
     const allAct  = list.filter(c => c.status === "Active");
-    const overdue = allAct.filter(c => { const d = pd(c.lc); return d && ds(d) >= THRESHOLD; }).sort((a,b) => new Date(a.lc) - new Date(b.lc));
-    const active  = allAct.filter(c => { const d = pd(c.lc); return !d || ds(d) < THRESHOLD;  }).sort((a,b) => new Date(b.lc) - new Date(a.lc));
+    const overdue = allAct.filter(c => { const d=pd(c.lc); return d && ds(d)>=THRESHOLD; }).sort((a,b)=>new Date(a.lc)-new Date(b.lc));
+    const active  = allAct.filter(c => { const d=pd(c.lc); return !d||ds(d)<THRESHOLD; }).sort((a,b)=>new Date(b.lc)-new Date(a.lc));
     return { cold, overdue, active };
   }, [contacts, query]);
 
@@ -459,19 +486,13 @@ export default function NetworkingDashboard() {
 
   if (loading) return (
     <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
-      <div style={{ textAlign:"center", color:"#999" }}>
-        <div style={{ fontSize:24, marginBottom:12 }}>⏳</div>
-        <div style={{ fontSize:14 }}>Loading contacts…</div>
-      </div>
+      <div style={{ textAlign:"center", color:"#999" }}><div style={{ fontSize:24, marginBottom:12 }}>⏳</div><div style={{ fontSize:14 }}>Loading contacts…</div></div>
     </div>
   );
 
   if (loadError) return (
     <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
-      <div style={{ textAlign:"center", color:"#A32D2D" }}>
-        <div style={{ fontSize:24, marginBottom:12 }}>⚠️</div>
-        <div style={{ fontSize:14 }}>{loadError}</div>
-      </div>
+      <div style={{ textAlign:"center", color:"#A32D2D" }}><div style={{ fontSize:24, marginBottom:12 }}>⚠️</div><div style={{ fontSize:14 }}>{loadError}</div></div>
     </div>
   );
 
@@ -483,22 +504,13 @@ export default function NetworkingDashboard() {
           <div style={{ fontSize:19, fontWeight:700, letterSpacing:"-.02em", color:"#1a1a18" }}>Networking Dashboard</div>
           <div style={{ fontSize:12, color:"#999", marginTop:1 }}>{contacts.length} contacts total</div>
         </div>
-
         <div style={{ flex:1, minWidth:180, maxWidth:320, position:"relative" }}>
           <span style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", fontSize:14, color:"#aaa", pointerEvents:"none" }}>🔍</span>
-          <input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Search by name, company, industry…"
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search by name, company, industry…"
             style={{ width:"100%", fontSize:13, padding:"7px 10px 7px 32px", border:"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", boxSizing:"border-box" }}
-            onFocus={e => e.target.style.borderColor = "#999"}
-            onBlur={e  => e.target.style.borderColor = "#e0e0de"}
-          />
-          {query && (
-            <button onClick={() => setQuery("")} style={{ position:"absolute", right:8, top:"50%", transform:"translateY(-50%)", background:"transparent", border:"none", cursor:"pointer", fontSize:14, color:"#aaa", padding:0, lineHeight:1 }}>✕</button>
-          )}
+            onFocus={e => e.target.style.borderColor="#999"} onBlur={e => e.target.style.borderColor="#e0e0de"} />
+          {query && <button onClick={() => setQuery("")} style={{ position:"absolute", right:8, top:"50%", transform:"translateY(-50%)", background:"transparent", border:"none", cursor:"pointer", fontSize:14, color:"#aaa", padding:0, lineHeight:1 }}>✕</button>}
         </div>
-
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
           {columns.map(col => (
             <div key={col.key} style={{ fontSize:12, padding:"4px 11px", borderRadius:20, fontWeight:600, ...colBadgeStyle[col.key] }}>
@@ -506,17 +518,12 @@ export default function NetworkingDashboard() {
             </div>
           ))}
         </div>
-
         <button onClick={() => setShowNew(true)} style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
           + New contact
         </button>
       </div>
 
-      {query && (
-        <div style={{ padding:"0 24px 12px", fontSize:12, color:"#999" }}>
-          Showing {cold.length + overdue.length + active.length} of {contacts.length} contacts for "{query}"
-        </div>
-      )}
+      {query && <div style={{ padding:"0 24px 12px", fontSize:12, color:"#999" }}>Showing {cold.length+overdue.length+active.length} of {contacts.length} contacts for "{query}"</div>}
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:20, padding:"0 24px" }}>
         {columns.map(col => (
@@ -527,15 +534,11 @@ export default function NetworkingDashboard() {
               <span style={{ fontSize:12, background:"#f5f5f3", border:"0.5px solid #e0e0de", borderRadius:20, padding:"2px 9px", color:"#777" }}>{col.contacts.length}</span>
             </div>
             {col.contacts.length === 0
-              ? <div style={{ textAlign:"center", padding:"2rem .5rem", color:"#bbb", fontSize:13 }}>{query ? "No matches" : "None"}</div>
+              ? <div style={{ textAlign:"center", padding:"2rem .5rem", color:"#bbb", fontSize:13 }}>{query?"No matches":"None"}</div>
               : col.contacts.map((c, i) => (
-                  <ContactCard
-                    key={`${col.key}-${c.fn}-${c.ln}-${i}`}
-                    c={c} idx={i} type={col.key}
+                  <ContactCard key={`${col.key}-${c.id||c.fn}-${c.ln}-${i}`} c={c} idx={i} type={col.key}
                     onOpen={(contact, type) => { setSelected(contact); setSelectedType(type); }}
-                    sessionNotes={sessionNotes}
-                    setSessionNotes={setSessionNotes}
-                  />
+                    sessionNotes={sessionNotes} setSessionNotes={setSessionNotes} />
                 ))
             }
           </div>
@@ -543,18 +546,18 @@ export default function NetworkingDashboard() {
       </div>
 
       {selected && (
-        <DetailPanel
-          c={selected} type={selectedType}
-          onClose={() => setSelected(null)}
-          sessionNotes={sessionNotes}
-          setSessionNotes={setSessionNotes}
-        />
+        <DetailPanel c={selected} type={selectedType} onClose={() => setSelected(null)}
+          interactions={interactions}
+          onSaved={updated => {
+            setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
+            setSelected(updated);
+          }}
+          sessionNotes={sessionNotes} setSessionNotes={setSessionNotes} />
       )}
+
       {showNew && (
-        <NewContactModal
-          onClose={() => setShowNew(false)}
-          onAdd={c => setContacts(p => [...p, c])}
-        />
+        <NewContactModal onClose={() => setShowNew(false)}
+          onAdd={c => setContacts(p => [...p, c])} />
       )}
     </div>
   );
