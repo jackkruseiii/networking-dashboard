@@ -87,7 +87,7 @@ function lcCls(d, type) {
 }
 
 // ─── Password gate ────────────────────────────────────────────────────────
-const APP_PASSWORD = "network2026";
+const APP_PASSWORD = "Jamily629!";
 
 function PasswordGate({ onUnlock }) {
   const [input, setInput] = useState("");
