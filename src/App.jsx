@@ -47,6 +47,7 @@ function mapSheetRow(row) {
 
 function mapInteractionRow(row) {
   return {
+    id:        String(row["Contact ID"] || "").trim(),
     timestamp: String(row["Timestamp"]  || row["Logged At"] || "").trim(),
     firstName: String(row["First Name"] || "").trim(),
     lastName:  String(row["Last Name"]  || "").trim(),
@@ -141,7 +142,7 @@ function ContactCard({ c, idx, type, onOpen, sessionNotes, setSessionNotes }) {
 
   async function handleSaveNote() {
     setShowSave(false); setSyncing(true);
-    await postToSheet("note", { firstName:c.fn, lastName:c.ln, note:sessionNotes[key]||"", timestamp:new Date().toISOString() });
+    await postToSheet("note", { id:c.id, firstName:c.fn, lastName:c.ln, note:sessionNotes[key]||"", timestamp:new Date().toISOString() });
     setSyncing(false); setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -240,9 +241,12 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
   const noteKey = `detail-${c.fn}-${c.ln}`;
   const note    = sessionNotes[noteKey] || "";
 
-  // Filter interactions for this contact
+  // Filter interactions — match by ID first, fall back to name for legacy entries
   const history = interactions
-    .filter(i => i.firstName.toLowerCase() === c.fn.toLowerCase() && i.lastName.toLowerCase() === c.ln.toLowerCase())
+    .filter(i => {
+      if (i.id && c.id) return i.id === c.id;
+      return i.firstName.toLowerCase() === c.fn.toLowerCase() && i.lastName.toLowerCase() === c.ln.toLowerCase();
+    })
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
   async function handleSaveEdit() {
@@ -255,7 +259,7 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
 
   async function handleSaveNote() {
     setNoteSyncing(true);
-    await postToSheet("note", { firstName:c.fn, lastName:c.ln, note, timestamp:new Date().toISOString() });
+    await postToSheet("note", { id:c.id, firstName:c.fn, lastName:c.ln, note, timestamp:new Date().toISOString() });
     setNoteSyncing(false);
     setNoteSaved(true);
     setTimeout(() => setNoteSaved(false), 2000);
