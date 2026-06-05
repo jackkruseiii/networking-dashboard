@@ -23,6 +23,11 @@ async function updateContact(data) {
   } catch (err) { console.error("Update failed:", err); return false; }
 }
 
+function todayStr() {
+  const d = new Date();
+  return d.toISOString().split("T")[0]; // YYYY-MM-DD
+}
+
 // ─── Sheet row mapper ─────────────────────────────────────────────────────
 function mapSheetRow(row) {
   return {
@@ -131,13 +136,15 @@ function LastContactBadge({ c, type }) {
 }
 
 // ─── Contact card ─────────────────────────────────────────────────────────
-function ContactCard({ c, idx, type, onOpen, sessionNotes, setSessionNotes }) {
+function ContactCard({ c, idx, type, onOpen, onContactedToday, sessionNotes, setSessionNotes }) {
   const key  = `${type}-${c.id||c.fn}-${c.ln}-${idx}`;
   const av   = AV[type];
   const loc  = [c.city, c.state].filter(Boolean).join(", ");
-  const [showSave, setShowSave] = useState(false);
-  const [saved,    setSaved]    = useState(false);
-  const [syncing,  setSyncing]  = useState(false);
+  const [showSave,   setShowSave]   = useState(false);
+  const [saved,      setSaved]      = useState(false);
+  const [syncing,    setSyncing]    = useState(false);
+  const [contacted,  setContacted]  = useState(false);
+  const [contacting, setContacting] = useState(false);
   const note = sessionNotes[key] || "";
 
   async function handleSaveNote() {
@@ -145,6 +152,16 @@ function ContactCard({ c, idx, type, onOpen, sessionNotes, setSessionNotes }) {
     await postToSheet("note", { id:c.id, firstName:c.fn, lastName:c.ln, note:sessionNotes[key]||"", timestamp:new Date().toISOString() });
     setSyncing(false); setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleContactedToday() {
+    setContacting(true);
+    const updated = { ...c, lc: todayStr() };
+    await updateContact(updated);
+    setContacting(false);
+    setContacted(true);
+    onContactedToday(updated);
+    setTimeout(() => setContacted(false), 3000);
   }
 
   return (
@@ -174,6 +191,10 @@ function ContactCard({ c, idx, type, onOpen, sessionNotes, setSessionNotes }) {
         <button onClick={() => onOpen(c, type)} style={{ fontSize:11, padding:"3px 9px", borderRadius:6, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>View profile</button>
         {c.linkedin && <a href={c.linkedin} target="_blank" rel="noreferrer" style={{ fontSize:11, padding:"3px 9px", borderRadius:6, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>LinkedIn</a>}
         {c.email    && <a href={`mailto:${c.email}`} style={{ fontSize:11, padding:"3px 9px", borderRadius:6, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>Email</a>}
+        <button onClick={handleContactedToday} disabled={contacting || contacted}
+          style={{ fontSize:11, padding:"3px 9px", borderRadius:6, border:"0.5px solid #ccc", background:contacted?"#EAF3DE":"transparent", color:contacted?"#3B6D11":"#555", cursor:"pointer" }}>
+          {contacting ? "Saving…" : contacted ? "✓ Logged" : "✓ Contacted today"}
+        </button>
       </div>
 
       {c.notes && (
@@ -556,6 +577,7 @@ export default function NetworkingDashboard() {
               : col.contacts.map((c, i) => (
                   <ContactCard key={`${col.key}-${c.id||c.fn}-${c.ln}-${i}`} c={c} idx={i} type={col.key}
                     onOpen={(contact, type) => { setSelected(contact); setSelectedType(type); }}
+                    onContactedToday={updated => setContacts(prev => prev.map(ct => ct.id === updated.id ? updated : ct))}
                     sessionNotes={sessionNotes} setSessionNotes={setSessionNotes} />
                 ))
             }
