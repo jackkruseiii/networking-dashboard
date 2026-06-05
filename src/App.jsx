@@ -444,6 +444,7 @@ export default function NetworkingDashboard() {
   const [contacts,     setContacts]     = useState([]);
   const [interactions, setInteractions] = useState([]);
   const [loading,      setLoading]      = useState(true);
+  const [refreshing,   setRefreshing]   = useState(false);
   const [loadError,    setLoadError]    = useState(null);
   const [selected,     setSelected]     = useState(null);
   const [selectedType, setSelectedType] = useState(null);
@@ -451,8 +452,8 @@ export default function NetworkingDashboard() {
   const [query,        setQuery]        = useState("");
   const [sessionNotes, setSessionNotes] = useState({});
 
-  useEffect(() => {
-    if (!unlocked) return;
+  function fetchData(isRefresh = false) {
+    if (isRefresh) setRefreshing(true);
     fetch("/api/contacts")
       .then(r => r.json())
       .then(data => {
@@ -463,8 +464,14 @@ export default function NetworkingDashboard() {
           setLoadError("Could not load contacts from sheet.");
         }
         setLoading(false);
+        setRefreshing(false);
       })
-      .catch(err => { console.error(err); setLoadError("Network error loading contacts."); setLoading(false); });
+      .catch(err => { console.error(err); setLoadError("Network error loading contacts."); setLoading(false); setRefreshing(false); });
+  }
+
+  useEffect(() => {
+    if (!unlocked) return;
+    fetchData();
   }, [unlocked]);
 
   const { cold, overdue, active } = useMemo(() => {
@@ -525,6 +532,10 @@ export default function NetworkingDashboard() {
             </div>
           ))}
         </div>
+        <button onClick={() => fetchData(true)} disabled={refreshing} title="Reload contacts from sheet"
+          style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:13, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#555", cursor:"pointer", whiteSpace:"nowrap" }}>
+          {refreshing ? "⏳" : "🔄"}
+        </button>
         <button onClick={() => setShowNew(true)} style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
           + New contact
         </button>
