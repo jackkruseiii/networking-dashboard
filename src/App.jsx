@@ -1,5 +1,16 @@
 import React, { useState, useMemo, useEffect } from "react";
 
+// ─── Responsive hook ─────────────────────────────────────────────────────
+function useWindowWidth() {
+  const [width, setWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1024);
+  useEffect(() => {
+    const handle = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", handle);
+    return () => window.removeEventListener("resize", handle);
+  }, []);
+  return width;
+}
+
 // ─── API helpers ──────────────────────────────────────────────────────────
 async function postToSheet(type, data) {
   try {
@@ -289,8 +300,8 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
 
 
   return (
-    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:16, border:"0.5px solid #e0e0de", width:"min(580px,100%)", maxHeight:"88vh", overflowY:"auto", padding:24 }}>
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:window.innerWidth<640?"flex-end":"center", justifyContent:"center", padding:window.innerWidth<640?0:16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:window.innerWidth<640?"16px 16px 0 0":16, border:"0.5px solid #e0e0de", width:window.innerWidth<640?"100%":"min(580px,100%)", maxHeight:window.innerWidth<640?"92vh":"88vh", overflowY:"auto", padding:window.innerWidth<640?"20px 16px":24 }}>
 
         {/* Header */}
         <div style={{ display:"flex", alignItems:"flex-start", gap:14, marginBottom:18 }}>
@@ -417,8 +428,8 @@ function NewContactModal({ onClose, onAdd }) {
   }
 
   return (
-    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:16, border:"0.5px solid #e0e0de", width:"min(580px,100%)", maxHeight:"90vh", overflowY:"auto", padding:24 }}>
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:window.innerWidth<640?"flex-end":"center", justifyContent:"center", padding:window.innerWidth<640?0:16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:window.innerWidth<640?"16px 16px 0 0":16, border:"0.5px solid #e0e0de", width:window.innerWidth<640?"100%":"min(580px,100%)", maxHeight:window.innerWidth<640?"92vh":"90vh", overflowY:"auto", padding:window.innerWidth<640?"20px 16px":24 }}>
         <div style={{ display:"flex", alignItems:"flex-start", marginBottom:20 }}>
           <div><div style={{ fontSize:19, fontWeight:600, marginBottom:3 }}>New contact</div><div style={{ fontSize:13, color:"#777" }}>Add someone to your network</div></div>
           <button onClick={onClose} style={{ marginLeft:"auto", background:"transparent", border:"0.5px solid #ccc", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:"#666" }}>✕ Close</button>
@@ -461,6 +472,8 @@ function NewContactModal({ onClose, onAdd }) {
 
 // ─── Main dashboard ───────────────────────────────────────────────────────
 export default function NetworkingDashboard() {
+  const width = useWindowWidth();
+  const isMobile = width < 640;
   const [unlocked,     setUnlocked]     = useState(false);
   const [contacts,     setContacts]     = useState([]);
   const [interactions, setInteractions] = useState([]);
@@ -534,12 +547,12 @@ export default function NetworkingDashboard() {
   return (
     <div style={{ fontFamily:"Georgia,serif", background:"#fafaf8", minHeight:"100vh", paddingBottom:"3rem" }}>
 
-      <div style={{ background:"#fff", borderBottom:"0.5px solid #e8e8e4", padding:"16px 24px", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", marginBottom:20 }}>
+      <div style={{ background:"#fff", borderBottom:"0.5px solid #e8e8e4", padding:isMobile?"12px 16px":"16px 24px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:20 }}>
         <div style={{ marginRight:4 }}>
-          <div style={{ fontSize:19, fontWeight:700, letterSpacing:"-.02em", color:"#1a1a18" }}>Networking Dashboard</div>
+          <div style={{ fontSize:isMobile?16:19, fontWeight:700, letterSpacing:"-.02em", color:"#1a1a18" }}>Networking Dashboard</div>
           <div style={{ fontSize:12, color:"#999", marginTop:1 }}>{contacts.length} contacts total</div>
         </div>
-        <div style={{ flex:1, minWidth:180, maxWidth:320, position:"relative" }}>
+        <div style={{ flex:1, minWidth:140, maxWidth:320, position:"relative" }}>
           <span style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", fontSize:14, color:"#aaa", pointerEvents:"none" }}>🔍</span>
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search by name, company, industry…"
             style={{ width:"100%", fontSize:13, padding:"7px 10px 7px 32px", border:"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", boxSizing:"border-box" }}
@@ -562,14 +575,14 @@ export default function NetworkingDashboard() {
         </button>
       </div>
 
-      {query && <div style={{ padding:"0 24px 12px", fontSize:12, color:"#999" }}>Showing {cold.length+overdue.length+active.length} of {contacts.length} contacts for "{query}"</div>}
+      {query && <div style={{ padding:isMobile?"0 12px 12px":"0 24px 12px", fontSize:12, color:"#999" }}>Showing {cold.length+overdue.length+active.length} of {contacts.length} contacts for "{query}"</div>}
 
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:20, padding:"0 24px" }}>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))", gap:isMobile?12:20, padding:isMobile?"0 12px":"0 24px" }}>
         {columns.map(col => (
           <div key={col.key} style={{ minWidth:0 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14, paddingBottom:12, borderBottom:"0.5px solid #e8e8e4" }}>
-              <span>{col.icon}</span>
-              <span style={{ fontSize:12, fontWeight:600, letterSpacing:".06em", textTransform:"uppercase", color:COL[col.key], flex:1 }}>{col.title}</span>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14, paddingBottom:12, borderBottom:"0.5px solid #e8e8e4", background:isMobile?"#fff":"transparent", padding:isMobile?"10px 12px":"0 0 12px 0", borderRadius:isMobile?10:0, border:isMobile?"0.5px solid #e0e0de":"none", borderBottom:"0.5px solid #e8e8e4" }}>
+              <span style={{ fontSize:isMobile?16:14 }}>{col.icon}</span>
+              <span style={{ fontSize:isMobile?14:12, fontWeight:600, letterSpacing:".06em", textTransform:"uppercase", color:COL[col.key], flex:1 }}>{col.title}</span>
               <span style={{ fontSize:12, background:"#f5f5f3", border:"0.5px solid #e0e0de", borderRadius:20, padding:"2px 9px", color:"#777" }}>{col.contacts.length}</span>
             </div>
             {col.contacts.length === 0
