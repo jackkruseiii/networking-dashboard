@@ -390,7 +390,22 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
     setTimeout(() => setNoteSaved(false), 2000);
   }
 
+  async function handleGenerateDraft() {
+    setDraftLoading(true);
+    setDraft(null);
+    const result = await generateEmailDraft(c, interactions);
+    setDraft(result);
+    setDraftLoading(false);
+  }
 
+  function InfoItem({ label, value }) {
+    return (
+      <div style={{ background:"#f9f9f7", borderRadius:8, padding:"8px 10px" }}>
+        <div style={{ fontSize:10, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:2 }}>{label}</div>
+        <div style={{ fontSize:13, color:value ? "#222" : "#bbb", fontStyle:value ? "normal" : "italic" }}>{value || "—"}</div>
+      </div>
+    );
+  }
 
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:window.innerWidth<640?"flex-end":"center", justifyContent:"center", padding:window.innerWidth<640?0:16 }}>
