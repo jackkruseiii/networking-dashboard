@@ -114,19 +114,14 @@ LINKEDIN MESSAGE RULES:
   ].join("\n");
 
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await fetch("/api/draft", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 500,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }]
-    })
+    body: JSON.stringify({ systemPrompt, userPrompt }),
   });
 
   const data = await response.json();
-  const body = data.content?.[0]?.text?.trim() || "";
+  const body = data.text || "";
   return { subject: "", body };
 }
 
