@@ -93,7 +93,7 @@ function lcCls(d, type) {
 }
 
 // ─── Password gate ────────────────────────────────────────────────────────
-const APP_PASSWORD = "network2026";
+const APP_PASSWORD = import.meta.env.VITE_APP_PASSWORD || "network2026";
 
 function PasswordGate({ onUnlock }) {
   const [input, setInput] = useState("");
