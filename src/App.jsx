@@ -39,6 +39,97 @@ function todayStr() {
   return d.toISOString().split("T")[0]; // YYYY-MM-DD
 }
 
+// ─── Email draft generator ────────────────────────────────────────────────
+async function generateEmailDraft(contact, interactions) {
+  const history = interactions
+    .filter(i => {
+      if (i.id && contact.id) return i.id === contact.id;
+      return i.firstName.toLowerCase() === contact.fn.toLowerCase() &&
+             i.lastName.toLowerCase() === contact.ln.toLowerCase();
+    })
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    .slice(0, 5); // last 5 interactions
+
+  const isCold = contact.status === "Never Contacted";
+  const checkinDate = pd(contact.lc);
+  const daysSinceContact = checkinDate ? ds(checkinDate) : null;
+
+  const connectionAnchor = (() => {
+    const rel = (contact.rel || "").toLowerCase();
+    const ug  = (contact.ug  || "").toLowerCase();
+    if (rel.includes("woodberry") || ug.includes("woodberry")) return "Woodberry Forest";
+    if (rel.includes("usna") || ug.includes("usna") || rel.includes("classmate") || rel.includes("fao")) return "USNA and our shared military background";
+    if (rel.includes("military") || rel.includes("navy") || rel.includes("admiral") || rel.includes("general")) return "our shared military background";
+    return "our shared connection";
+  })();
+
+  const systemPrompt = `You are writing emails on behalf of Jack Kruse.
+
+ABOUT JACK:
+- Current role: Military Group Chief at the U.S. Embassy in Brazil, leading security cooperation including military equipment sales, training and education, and operations and exercises planning
+- Background: Navy FAO (Foreign Area Officer) with extensive assignments in Africa and Europe. Earlier career as a Naval Aviator.
+- Transitioning out of the military in 2028-2029 and actively learning from others about their career transitions and what it's like to work in various sectors
+- Primary interest: Education sector, but adapts based on the contact's industry
+- Location: Brazil — never suggest in-person meetings or coffee
+
+EMAIL RULES:
+- Tone: casual, warm, collegial — like writing to a fellow military professional or old friend
+- Always lead with the shared connection anchor provided
+- Always mention Jack's current role at the US Embassy Brazil
+- Always mention his background as a Naval Aviator and FAO with global assignments
+- The ask is always a 20-minute Google Meet call
+- Keep it to 3-4 short paragraphs — punchy, not long-winded
+- Never suggest coffee, lunch, or in-person meetings
+- Always include a subject line on the first line in the format: SUBJECT: [subject here]
+- Then a blank line, then the email body
+- Sign off as: Jack Kruse`;
+
+  const userPrompt = `Write a ${isCold ? "cold outreach" : "follow-up"} email to ${contact.fn} ${contact.ln}.
+
+CONTACT INFO:
+- Name: ${contact.fn} ${contact.ln}
+- Company: ${contact.company || "unknown"}
+- Industry: ${contact.industry || "unknown"}
+- Location: ${contact.city ? `${contact.city}, ${contact.state}` : "unknown"}
+- Relationship: ${contact.rel || "none noted"}
+- Connection anchor to use: ${connectionAnchor}
+- Last contact: ${checkinDate ? `${fd(checkinDate)} (${daysSinceContact} days ago)` : "never"}
+- Notes: ${contact.notes || "none"}
+
+${history.length > 0 ? `INTERACTION HISTORY (most recent first):
+${history.map(h => `- ${h.timestamp ? new Date(h.timestamp).toLocaleDateString() : "unknown date"}: ${h.note}`).join("
+")}` : "No prior interactions logged."}
+
+${isCold ? "This is the first outreach — no prior contact." : `This is a follow-up — we have interacted before. Reference the relationship naturally without being awkward about the time gap.`}
+
+Write the email now. Start with SUBJECT: on the first line.`;
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }]
+    })
+  });
+
+  const data = await response.json();
+  const text = data.content?.[0]?.text || "";
+
+  // Parse subject and body
+  const lines = text.trim().split("
+");
+  const subjectLine = lines.find(l => l.startsWith("SUBJECT:")) || "";
+  const subject = subjectLine.replace("SUBJECT:", "").trim();
+  const bodyStart = lines.findIndex(l => l.startsWith("SUBJECT:")) + 1;
+  const body = lines.slice(bodyStart).join("
+").trim();
+
+  return { subject, body };
+}
+
 // ─── Sheet row mapper ─────────────────────────────────────────────────────
 function mapSheetRow(row) {
   return {
@@ -256,11 +347,13 @@ function DetailSelectField({ label, k, options, form, setForm, editing }) {
 
 // ─── Detail / Edit panel ──────────────────────────────────────────────────
 function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, setSessionNotes }) {
-  const [editing,  setEditing]  = useState(false);
-  const [form,     setForm]     = useState({ ...c });
-  const [saving,   setSaving]   = useState(false);
-  const [noteSaved, setNoteSaved] = useState(false);
+  const [editing,     setEditing]     = useState(false);
+  const [form,        setForm]        = useState({ ...c });
+  const [saving,      setSaving]      = useState(false);
+  const [noteSaved,   setNoteSaved]   = useState(false);
   const [noteSyncing, setNoteSyncing] = useState(false);
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draft,        setDraft]        = useState(null); // { subject, body }
 
   if (!c) return null;
   const av  = AV[type] || AV.active;
@@ -366,6 +459,34 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
             {noteSyncing ? "Saving…" : "Save note"}
           </button>
           {noteSaved && <span style={{ fontSize:11, color:"#3B6D11", marginLeft:8 }}>✓ Saved to sheet</span>}
+        </div>
+
+        {/* Email draft generator */}
+        <div style={{ marginBottom:18 }}>
+          <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>LinkedIn message</div>
+          <button onClick={handleGenerateDraft} disabled={draftLoading}
+            style={{ fontSize:13, fontWeight:500, padding:"8px 16px", borderRadius:8, border:"none", background:"#0a2342", color:"#fff", cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6 }}>
+            {draftLoading ? "✍️ Drafting…" : "💬 Draft LinkedIn message"}
+          </button>
+
+          {draft && (
+            <div style={{ marginTop:12 }}>
+              <div style={{ background:"#f9f9f7", border:"0.5px solid #e0e0de", borderRadius:10, padding:"14px 16px", marginBottom:10 }}>
+                <div style={{ fontSize:11, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:6 }}>LinkedIn message — ready to copy</div>
+                <div style={{ fontSize:13, color:"#333", lineHeight:1.7, whiteSpace:"pre-wrap" }}>{draft.body}</div>
+              </div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                <button onClick={() => navigator.clipboard.writeText(draft.body)}
+                  style={{ fontSize:12, fontWeight:500, padding:"6px 14px", borderRadius:7, border:"none", background:"#0a66c2", color:"#fff", cursor:"pointer" }}>
+                  Copy for LinkedIn
+                </button>
+                <button onClick={handleGenerateDraft} disabled={draftLoading}
+                  style={{ fontSize:12, padding:"6px 14px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>
+                  Regenerate
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Interaction history */}
