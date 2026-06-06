@@ -63,7 +63,7 @@ async function generateEmailDraft(contact, interactions) {
     return "our shared connection";
   })();
 
-  const systemPrompt = `You are writing emails on behalf of Jack Kruse.
+  const systemPrompt = `You are writing LinkedIn messages on behalf of Jack Kruse.
 
 ABOUT JACK:
 - Current role: Military Group Chief at the U.S. Embassy in Brazil, leading security cooperation including military equipment sales, training and education, and operations and exercises planning
@@ -72,62 +72,62 @@ ABOUT JACK:
 - Primary interest: Education sector, but adapts based on the contact's industry
 - Location: Brazil — never suggest in-person meetings or coffee
 
-EMAIL RULES:
-- Tone: casual, warm, collegial — like writing to a fellow military professional or old friend
+LINKEDIN MESSAGE RULES:
+- This is a LinkedIn message, not an email — keep it tight, warm, and conversational
+- Under 150 words — punchy, not long-winded
+- No subject line
+- No formal opener like "Dear" — just use their first name
+- No formal sign-off — end naturally, just "— Jack" or similar
 - Always lead with the shared connection anchor provided
-- Always mention Jack's current role at the US Embassy Brazil
-- Always mention his background as a Naval Aviator and FAO with global assignments
-- The ask is always a 20-minute Google Meet call
-- Keep it to 3-4 short paragraphs — punchy, not long-winded
+- Briefly mention Jack's current role at the US Embassy Brazil
+- Reference his Naval Aviator and FAO background naturally if relevant
+- The ask is a 20-minute Google Meet call
+- Tailor the curiosity angle to their specific industry
 - Never suggest coffee, lunch, or in-person meetings
-- Always include a subject line on the first line in the format: SUBJECT: [subject here]
-- Then a blank line, then the email body
-- Sign off as: Jack Kruse`;
+- Warm, collegial tone — like a message from a fellow military professional`;
 
-  const userPrompt = `Write a ${isCold ? "cold outreach" : "follow-up"} email to ${contact.fn} ${contact.ln}.
 
-CONTACT INFO:
-- Name: ${contact.fn} ${contact.ln}
-- Company: ${contact.company || "unknown"}
-- Industry: ${contact.industry || "unknown"}
-- Location: ${contact.city ? `${contact.city}, ${contact.state}` : "unknown"}
-- Relationship: ${contact.rel || "none noted"}
-- Connection anchor to use: ${connectionAnchor}
-- Last contact: ${checkinDate ? `${fd(checkinDate)} (${daysSinceContact} days ago)` : "never"}
-- Notes: ${contact.notes || "none"}
+  const locationStr = contact.city ? contact.city + (contact.state ? ", " + contact.state : "") : "unknown";
+  const lastContactStr = checkinDate ? fd(checkinDate) + " (" + daysSinceContact + " days ago)" : "never";
+  const historyText = history.length > 0
+    ? "PRIOR INTERACTIONS:\n" + history.map(h => "- " + (h.timestamp ? new Date(h.timestamp).toLocaleDateString() : "unknown date") + ": " + h.note).join("\n")
+    : "No prior interactions logged.";
 
-${history.length > 0 ? `INTERACTION HISTORY (most recent first):
-${history.map(h => `- ${h.timestamp ? new Date(h.timestamp).toLocaleDateString() : "unknown date"}: ${h.note}`).join("
-")}` : "No prior interactions logged."}
+  const userPrompt = [
+    "Write a " + (isCold ? "cold outreach" : "follow-up") + " LinkedIn message to " + contact.fn + " " + contact.ln + ".",
+    "",
+    "CONTACT INFO:",
+    "- Name: " + contact.fn + " " + contact.ln,
+    "- Company: " + (contact.company || "unknown"),
+    "- Industry: " + (contact.industry || "unknown"),
+    "- Location: " + locationStr,
+    "- Relationship: " + (contact.rel || "none noted"),
+    "- Connection anchor: " + connectionAnchor,
+    "- Last contact: " + lastContactStr,
+    "- Notes: " + (contact.notes || "none"),
+    "",
+    historyText,
+    "",
+    isCold ? "First ever outreach — no prior contact." : "Follow-up — reference the existing relationship naturally.",
+    "",
+    "Write the LinkedIn message now. No subject line. Start directly with their first name."
+  ].join("\n");
 
-${isCold ? "This is the first outreach — no prior contact." : `This is a follow-up — we have interacted before. Reference the relationship naturally without being awkward about the time gap.`}
-
-Write the email now. Start with SUBJECT: on the first line.`;
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
+      max_tokens: 500,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }]
     })
   });
 
   const data = await response.json();
-  const text = data.content?.[0]?.text || "";
-
-  // Parse subject and body
-  const lines = text.trim().split("
-");
-  const subjectLine = lines.find(l => l.startsWith("SUBJECT:")) || "";
-  const subject = subjectLine.replace("SUBJECT:", "").trim();
-  const bodyStart = lines.findIndex(l => l.startsWith("SUBJECT:")) + 1;
-  const body = lines.slice(bodyStart).join("
-").trim();
-
-  return { subject, body };
+  const body = data.content?.[0]?.text?.trim() || "";
+  return { subject: "", body };
 }
 
 // ─── Sheet row mapper ─────────────────────────────────────────────────────
