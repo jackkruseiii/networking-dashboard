@@ -474,6 +474,7 @@ function NewContactModal({ onClose, onAdd }) {
 export default function NetworkingDashboard() {
   const width = useWindowWidth();
   const isMobile = width < 640;
+  const [collapsed, setCollapsed] = useState({cold:false, overdue:false, active:false});
   const [unlocked,     setUnlocked]     = useState(false);
   const [contacts,     setContacts]     = useState([]);
   const [interactions, setInteractions] = useState([]);
@@ -580,12 +581,15 @@ export default function NetworkingDashboard() {
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))", gap:isMobile?12:20, padding:isMobile?"0 12px":"0 24px" }}>
         {columns.map(col => (
           <div key={col.key} style={{ minWidth:0 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14, paddingBottom:12, borderBottom:"0.5px solid #e8e8e4", background:isMobile?"#fff":"transparent", padding:isMobile?"10px 12px":"0 0 12px 0", borderRadius:isMobile?10:0, border:isMobile?"0.5px solid #e0e0de":"none", borderBottom:"0.5px solid #e8e8e4" }}>
+            <div
+              onClick={() => isMobile && setCollapsed(p => ({ ...p, [col.key]: !p[col.key] }))}
+              style={{ display:"flex", alignItems:"center", gap:8, marginBottom:collapsed[col.key]?0:14, paddingBottom:12, borderBottom:"0.5px solid #e8e8e4", background:isMobile?"#fff":"transparent", padding:isMobile?"10px 12px":"0 0 12px 0", borderRadius:isMobile?(collapsed[col.key]?10:"10px 10px 0 0"):0, border:isMobile?"0.5px solid #e0e0de":"none", borderBottom:"0.5px solid #e8e8e4", cursor:isMobile?"pointer":"default", userSelect:"none" }}>
               <span style={{ fontSize:isMobile?16:14 }}>{col.icon}</span>
               <span style={{ fontSize:isMobile?14:12, fontWeight:600, letterSpacing:".06em", textTransform:"uppercase", color:COL[col.key], flex:1 }}>{col.title}</span>
               <span style={{ fontSize:12, background:"#f5f5f3", border:"0.5px solid #e0e0de", borderRadius:20, padding:"2px 9px", color:"#777" }}>{col.contacts.length}</span>
+              {isMobile && <span style={{ fontSize:14, color:"#999", marginLeft:4 }}>{collapsed[col.key] ? "▸" : "▾"}</span>}
             </div>
-            {col.contacts.length === 0
+            {!collapsed[col.key] && (col.contacts.length === 0
               ? <div style={{ textAlign:"center", padding:"2rem .5rem", color:"#bbb", fontSize:13 }}>{query?"No matches":"None"}</div>
               : col.contacts.map((c, i) => (
                   <ContactCard key={`${col.key}-${c.id||c.fn}-${c.ln}-${i}`} c={c} idx={i} type={col.key}
@@ -593,7 +597,7 @@ export default function NetworkingDashboard() {
                     onContactedToday={updated => setContacts(prev => prev.map(ct => ct.id === updated.id ? updated : ct))}
                     sessionNotes={sessionNotes} setSessionNotes={setSessionNotes} />
                 ))
-            }
+            )}
           </div>
         ))}
       </div>
