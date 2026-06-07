@@ -24,7 +24,7 @@ export default function NewportDigest({ onBack }) {
     const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
     try {
-      const res = await fetch("/api/newport", {
+      const res = await fetch("/api/newport.mjs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
