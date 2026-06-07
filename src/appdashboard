@@ -703,7 +703,10 @@ export default function NetworkingDashboard({ onNewport }) {
           {refreshing ? "⏳" : "🔄"}
         </button>
         <button onClick={() => setShowNew(true)} style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
-          + New contact
+        <button onClick={() => onNewport && onNewport()} style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#0a2342", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
+  ⚓ Newport Intel
+</button>
++ New contact
         </button>
       </div>
 
