@@ -32,7 +32,7 @@ export default function NewportDigest({ onBack }) {
         }),
       });
 
-  const data = await res.json();
+      const data = await res.json();
       if (!data.success) throw new Error(data.error || "Unknown error");
       setDigest(data.digest);
       setActiveCategory("news");
@@ -67,6 +67,9 @@ export default function NewportDigest({ onBack }) {
     sowhat:       { background: "#f0f4f9", border: "0.5px solid #c8d8ea", borderRadius: 8, padding: "12px 16px", marginTop: 20, display: "flex", gap: 10 },
     sowhatLabel:  { fontSize: 10, letterSpacing: ".15em", textTransform: "uppercase", color: "#0a2342", flexShrink: 0, paddingTop: 2 },
     sowhatText:   { fontSize: 13, color: "#445", lineHeight: 1.5, fontStyle: "italic" },
+    sources:      { marginTop: 14 },
+    sourcesLabel: { fontSize: 10, letterSpacing: ".15em", textTransform: "uppercase", color: "#999", marginBottom: 6 },
+    sourceLink:   { fontSize: 12, color: "#0a2342", textDecoration: "underline", wordBreak: "break-all" },
     footer:       { display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "0.5px solid #eee", paddingTop: 16, marginTop: 24 },
     dateStr:      { fontSize: 11, color: "#bbb", letterSpacing: ".05em" },
     regenBtn:     { fontSize: 12, padding: "6px 14px", borderRadius: 7, border: "0.5px solid #ccc", background: "transparent", color: "#555", cursor: "pointer" },
@@ -100,7 +103,7 @@ export default function NewportDigest({ onBack }) {
               AI-powered weekly briefing on Newport, RI — news, politics, schools, events, quality of life, and military community intel in one digest.
             </div>
             <button style={s.genBtn} onClick={generateDigest}>Generate This Week's Digest</button>
-            <div style={{ marginTop: 12, fontSize: 11, color: "#bbb", letterSpacing: ".05em" }}>Live web search · Takes ~20 seconds</div>
+            <div style={{ marginTop: 12, fontSize: 11, color: "#bbb", letterSpacing: ".05em" }}>Live web search · Takes ~40 seconds</div>
           </div>
         )}
 
@@ -154,6 +157,18 @@ export default function NewportDigest({ onBack }) {
                   <span style={s.sowhatLabel}>So What?</span>
                   <span style={s.sowhatText}>{active.sowhat}</span>
                 </div>
+                {active.sources && active.sources.length > 0 && (
+                  <div style={s.sources}>
+                    <div style={s.sourcesLabel}>Sources</div>
+                    {active.sources.map((src, i) => (
+                      <div key={i} style={{ marginBottom: 4 }}>
+                        <a href={src} target="_blank" rel="noreferrer" style={s.sourceLink}>
+                          {src}
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
