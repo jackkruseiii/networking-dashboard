@@ -49,7 +49,6 @@ Return ONLY a valid JSON object, no markdown fences, no preamble:
         "Content-Type": "application/json",
         "x-api-key": ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
-        "anthropic-beta": "interleaved-thinking-2025-05-14",
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
@@ -74,4 +73,8 @@ Return ONLY a valid JSON object, no markdown fences, no preamble:
     const parsed = JSON.parse(clean);
     return res.status(200).json({ success: true, digest: parsed });
 
+  } catch (err) {
+    console.error("Newport proxy error:", err);
+    return res.status(500).json({ error: err.message });
   }
+}
