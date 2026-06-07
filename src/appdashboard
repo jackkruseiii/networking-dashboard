@@ -602,7 +602,7 @@ function NewContactModal({ onClose, onAdd }) {
 }
 
 // ─── Main dashboard ───────────────────────────────────────────────────────
-export default function NetworkingDashboard() {
+export default function NetworkingDashboard({ onNewport }) {
   const width = useWindowWidth();
   const isMobile = width < 640;
   const [collapsed, setCollapsed] = useState({cold:false, overdue:false, active:false});
