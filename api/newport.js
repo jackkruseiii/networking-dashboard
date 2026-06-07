@@ -34,4 +34,44 @@ Return ONLY a valid JSON object, no markdown fences, no preamble:
   "date": "Week of [current date]",
   "topline": "One sentence overall summary of the most important thing happening in Newport this week",
   "categories": {
-    "news":     { "headline": "...", "bulle
+    "news":      { "headline": "...", "bullets": ["...", "...", "..."], "sowhat": "..." },
+    "politics":  { "headline": "...", "bullets": ["...", "...", "..."], "sowhat": "..." },
+    "schools":   { "headline": "...", "bullets": ["...", "...", "..."], "sowhat": "..." },
+    "activities":{ "headline": "...", "bullets": ["...", "...", "..."], "sowhat": "..." },
+    "qol":       { "headline": "...", "bullets": ["...", "...", "..."], "sowhat": "..." },
+    "military":  { "headline": "...", "bullets": ["...", "...", "..."], "sowhat": "..." }
+  }
+}`;
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "interleaved-thinking-2025-05-14",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4000,
+        system: systemPrompt,
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        messages: [{ role: "user", content: userPrompt }],
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json({ error: data.error?.message || "Anthropic API error" });
+    }
+
+    const fullText = (data.content || [])
+      .map(block => (block.type === "text" ? block.text : ""))
+      .filter(Boolean)
+      .join("\n");
+
+    const clean = fullText.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(clean);
+    return res.status(200).json({ success: true, digest: parsed });
+
+  }
