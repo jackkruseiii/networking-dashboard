@@ -32,9 +32,7 @@ export default function NewportDigest({ onBack }) {
         }),
       });
 
-   const text = await res.text();
-      console.log("RAW RESPONSE:", text);
-      const data = JSON.parse(text);
+  const data = await res.json();
       if (!data.success) throw new Error(data.error || "Unknown error");
       setDigest(data.digest);
       setActiveCategory("news");
