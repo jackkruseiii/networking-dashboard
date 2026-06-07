@@ -23,8 +23,10 @@ Search for current news across these six categories for Newport and Aquidneck Is
 5. QUALITY OF LIFE - housing, cost of living, neighborhoods
 6. MILITARY - Naval Station Newport, base news, family resources
 
+For each bullet point, include the source URL where you found the information.
+
 Return ONLY this JSON, no markdown, no preamble:
-{"date":"Week of [date]","topline":"one sentence summary","categories":{"news":{"headline":"...","bullets":["...","..."],"sowhat":"..."},"politics":{"headline":"...","bullets":["...","..."],"sowhat":"..."},"schools":{"headline":"...","bullets":["...","..."],"sowhat":"..."},"activities":{"headline":"...","bullets":["...","..."],"sowhat":"..."},"qol":{"headline":"...","bullets":["...","..."],"sowhat":"..."},"military":{"headline":"...","bullets":["...","..."],"sowhat":"..."}}}`;
+{"date":"Week of [date]","topline":"one sentence summary","categories":{"news":{"headline":"...","bullets":["...","..."],"sources":["https://...","https://..."],"sowhat":"..."},"politics":{"headline":"...","bullets":["...","..."],"sources":["https://...","https://..."],"sowhat":"..."},"schools":{"headline":"...","bullets":["...","..."],"sources":["https://...","https://..."],"sowhat":"..."},"activities":{"headline":"...","bullets":["...","..."],"sources":["https://...","https://..."],"sowhat":"..."},"qol":{"headline":"...","bullets":["...","..."],"sources":["https://...","https://..."],"sowhat":"..."},"military":{"headline":"...","bullets":["...","..."],"sources":["https://...","https://..."],"sowhat":"..."}}}`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
