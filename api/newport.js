@@ -64,7 +64,11 @@ Return ONLY this JSON, no markdown, no preamble:
       return res.status(200).json({ success: false, error: "No text in response. Full response: " + JSON.stringify(data).slice(0, 300) });
     }
 
-    const clean = fullText.replace(/```json|```/g, "").trim();
+    const jsonMatch = fullText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return res.status(200).json({ success: false, error: "No JSON found in response: " + fullText.slice(0, 300) });
+    }
+    const clean = jsonMatch[0];
 
     let parsed;
     try {
