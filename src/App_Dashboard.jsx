@@ -36,10 +36,10 @@ async function updateContact(data) {
 
 function todayStr() {
   const d = new Date();
-  return d.toISOString().split("T")[0]; // YYYY-MM-DD
+  return d.toISOString().split("T")[0];
 }
 
-// ─── Email draft generator ────────────────────────────────────────────────
+// ─── LinkedIn message generator ───────────────────────────────────────────
 async function generateEmailDraft(contact, interactions) {
   const history = interactions
     .filter(i => {
@@ -48,7 +48,7 @@ async function generateEmailDraft(contact, interactions) {
              i.lastName.toLowerCase() === contact.ln.toLowerCase();
     })
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-    .slice(0, 5); // last 5 interactions
+    .slice(0, 5);
 
   const isCold = contact.status === "Never Contacted";
   const checkinDate = pd(contact.lc);
@@ -86,7 +86,6 @@ LINKEDIN MESSAGE RULES:
 - Never suggest coffee, lunch, or in-person meetings
 - Warm, collegial tone — like a message from a fellow military professional`;
 
-
   const locationStr = contact.city ? contact.city + (contact.state ? ", " + contact.state : "") : "unknown";
   const lastContactStr = checkinDate ? fd(checkinDate) + " (" + daysSinceContact + " days ago)" : "never";
   const historyText = history.length > 0
@@ -112,7 +111,6 @@ LINKEDIN MESSAGE RULES:
     "",
     "Write the LinkedIn message now. No subject line. Start directly with their first name."
   ].join("\n");
-
 
   const response = await fetch("/api/draft", {
     method: "POST",
@@ -174,7 +172,6 @@ const BADGE = {
 
 function pd(s) {
   if (!s) return null;
-  // Handle ISO date strings from sheets (e.g. "2026-03-20T03:00:00.000Z")
   const d = new Date(s);
   return isNaN(d) ? null : d;
 }
@@ -310,7 +307,7 @@ function ContactCard({ c, idx, type, onOpen, onContactedToday, sessionNotes, set
   );
 }
 
-// ─── Reusable edit field components (must be outside DetailPanel to avoid focus loss) ───
+// ─── Reusable edit field components (module level — prevents focus loss) ──
 const detailInp = { fontSize:13, padding:"7px 10px", border:"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box" };
 const detailLbl = { fontSize:10, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:3, display:"block" };
 
@@ -340,15 +337,25 @@ function DetailSelectField({ label, k, options, form, setForm, editing }) {
   );
 }
 
+// ─── InfoItem (module level — prevents focus loss) ────────────────────────
+function InfoItem({ label, value }) {
+  return (
+    <div style={{ background:"#f9f9f7", borderRadius:8, padding:"8px 10px" }}>
+      <div style={{ fontSize:10, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:2 }}>{label}</div>
+      <div style={{ fontSize:13, color:value ? "#222" : "#bbb", fontStyle:value ? "normal" : "italic" }}>{value || "—"}</div>
+    </div>
+  );
+}
+
 // ─── Detail / Edit panel ──────────────────────────────────────────────────
 function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, setSessionNotes }) {
-  const [editing,     setEditing]     = useState(false);
-  const [form,        setForm]        = useState({ ...c });
-  const [saving,      setSaving]      = useState(false);
-  const [noteSaved,   setNoteSaved]   = useState(false);
-  const [noteSyncing, setNoteSyncing] = useState(false);
+  const [editing,      setEditing]      = useState(false);
+  const [form,         setForm]         = useState({ ...c });
+  const [saving,       setSaving]       = useState(false);
+  const [noteSaved,    setNoteSaved]    = useState(false);
+  const [noteSyncing,  setNoteSyncing]  = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
-  const [draft,        setDraft]        = useState(null); // { subject, body }
+  const [draft,        setDraft]        = useState(null);
 
   if (!c) return null;
   const av  = AV[type] || AV.active;
@@ -361,7 +368,6 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
   const noteKey = `detail-${c.fn}-${c.ln}`;
   const note    = sessionNotes[noteKey] || "";
 
-  // Filter interactions — match by ID first, fall back to name for legacy entries
   const history = interactions
     .filter(i => {
       if (i.id && c.id) return i.id === c.id;
@@ -393,15 +399,6 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
     setDraftLoading(false);
   }
 
-  function InfoItem({ label, value }) {
-    return (
-      <div style={{ background:"#f9f9f7", borderRadius:8, padding:"8px 10px" }}>
-        <div style={{ fontSize:10, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:2 }}>{label}</div>
-        <div style={{ fontSize:13, color:value ? "#222" : "#bbb", fontStyle:value ? "normal" : "italic" }}>{value || "—"}</div>
-      </div>
-    );
-  }
-
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:window.innerWidth<640?"flex-end":"center", justifyContent:"center", padding:window.innerWidth<640?0:16 }}>
       <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:window.innerWidth<640?"16px 16px 0 0":16, border:"0.5px solid #e0e0de", width:window.innerWidth<640?"100%":"min(580px,100%)", maxHeight:window.innerWidth<640?"92vh":"88vh", overflowY:"auto", padding:window.innerWidth<640?"20px 16px":24 }}>
@@ -414,15 +411,11 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
             <div style={{ fontSize:13, color:"#777" }}>{c.rel || (c.company || "—")}</div>
           </div>
           <div style={{ display:"flex", gap:8, flexShrink:0 }}>
-            {!editing && (
-              <button onClick={() => setEditing(true)} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>✏️ Edit</button>
-            )}
-            {editing && (
-              <>
-                <button onClick={handleSaveEdit} disabled={saving} style={{ fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:7, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>{saving?"Saving…":"Save"}</button>
-                <button onClick={() => { setEditing(false); setForm({ ...c }); }} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
-              </>
-            )}
+            {!editing && <button onClick={() => setEditing(true)} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>✏️ Edit</button>}
+            {editing && <>
+              <button onClick={handleSaveEdit} disabled={saving} style={{ fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:7, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>{saving?"Saving…":"Save"}</button>
+              <button onClick={() => { setEditing(false); setForm({ ...c }); }} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
+            </>}
             <button onClick={onClose} style={{ background:"transparent", border:"0.5px solid #ccc", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:"#666" }}>✕</button>
           </div>
         </div>
@@ -471,18 +464,17 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
           {noteSaved && <span style={{ fontSize:11, color:"#3B6D11", marginLeft:8 }}>✓ Saved to sheet</span>}
         </div>
 
-        {/* Email draft generator */}
+        {/* LinkedIn draft */}
         <div style={{ marginBottom:18 }}>
           <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>LinkedIn message</div>
           <button onClick={handleGenerateDraft} disabled={draftLoading}
             style={{ fontSize:13, fontWeight:500, padding:"8px 16px", borderRadius:8, border:"none", background:"#0a2342", color:"#fff", cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6 }}>
             {draftLoading ? "✍️ Drafting…" : "💬 Draft LinkedIn message"}
           </button>
-
           {draft && (
             <div style={{ marginTop:12 }}>
               <div style={{ background:"#f9f9f7", border:"0.5px solid #e0e0de", borderRadius:10, padding:"14px 16px", marginBottom:10 }}>
-                <div style={{ fontSize:11, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:6 }}>LinkedIn message — ready to copy</div>
+                <div style={{ fontSize:11, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:6 }}>Ready to copy</div>
                 <div style={{ fontSize:13, color:"#333", lineHeight:1.7, whiteSpace:"pre-wrap" }}>{draft.body}</div>
               </div>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
@@ -605,7 +597,7 @@ function NewContactModal({ onClose, onAdd }) {
 export default function NetworkingDashboard({ onNewport }) {
   const width = useWindowWidth();
   const isMobile = width < 640;
-  const [collapsed, setCollapsed] = useState({cold:false, overdue:false, active:false});
+  const [collapsed,    setCollapsed]    = useState({cold:false, overdue:false, active:false});
   const [unlocked,     setUnlocked]     = useState(false);
   const [contacts,     setContacts]     = useState([]);
   const [interactions, setInteractions] = useState([]);
@@ -679,6 +671,7 @@ export default function NetworkingDashboard({ onNewport }) {
   return (
     <div style={{ fontFamily:"Georgia,serif", background:"#fafaf8", minHeight:"100vh", paddingBottom:"3rem" }}>
 
+      {/* Header */}
       <div style={{ background:"#fff", borderBottom:"0.5px solid #e8e8e4", padding:isMobile?"12px 16px":"16px 24px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:20 }}>
         <div style={{ marginRight:4 }}>
           <div style={{ fontSize:isMobile?16:19, fontWeight:700, letterSpacing:"-.02em", color:"#1a1a18" }}>Networking Dashboard</div>
@@ -699,19 +692,22 @@ export default function NetworkingDashboard({ onNewport }) {
           ))}
         </div>
         <button onClick={() => fetchData(true)} disabled={refreshing} title="Reload contacts from sheet"
-          style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:13, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#555", cursor:"pointer", whiteSpace:"nowrap" }}>
+          style={{ fontSize:13, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#555", cursor:"pointer" }}>
           {refreshing ? "⏳" : "🔄"}
         </button>
-        <button onClick={() => setShowNew(true)} style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
-        <button onClick={() => onNewport && onNewport()} style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#0a2342", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
-  ⚓ Newport Intel
-</button>
-+ New contact
+        {onNewport && (
+          <button onClick={onNewport} style={{ fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#0a2342", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
+            ⚓ Newport Intel
+          </button>
+        )}
+        <button onClick={() => setShowNew(true)} style={{ fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
+          + New contact
         </button>
       </div>
 
       {query && <div style={{ padding:isMobile?"0 12px 12px":"0 24px 12px", fontSize:12, color:"#999" }}>Showing {cold.length+overdue.length+active.length} of {contacts.length} contacts for "{query}"</div>}
 
+      {/* Columns */}
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))", gap:isMobile?12:20, padding:isMobile?"0 12px":"0 24px" }}>
         {columns.map(col => (
           <div key={col.key} style={{ minWidth:0 }}>
@@ -739,16 +735,12 @@ export default function NetworkingDashboard({ onNewport }) {
       {selected && (
         <DetailPanel c={selected} type={selectedType} onClose={() => setSelected(null)}
           interactions={interactions}
-          onSaved={updated => {
-            setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
-            setSelected(updated);
-          }}
+          onSaved={updated => { setContacts(prev => prev.map(c => c.id === updated.id ? updated : c)); setSelected(updated); }}
           sessionNotes={sessionNotes} setSessionNotes={setSessionNotes} />
       )}
 
       {showNew && (
-        <NewContactModal onClose={() => setShowNew(false)}
-          onAdd={c => setContacts(p => [...p, c])} />
+        <NewContactModal onClose={() => setShowNew(false)} onAdd={c => setContacts(p => [...p, c])} />
       )}
     </div>
   );
