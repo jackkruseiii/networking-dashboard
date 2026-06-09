@@ -566,7 +566,7 @@ function NewContactModal({ onClose, onAdd }) {
           <ModalField label="Relationship" k="rel"      placeholder="USNA classmate, FAO…" form={form} set={set} errors={errors} />
           <div style={{ display:"flex", flexDirection:"column" }}>
             <label style={modalLbl}>Status</label>
-            <select value={form.status} onChange={e => set("status", e.target.value)} style={{ ...inp, cursor:"pointer" }}>
+            <select value={form.status} onChange={e => set("status", e.target.value)} style={{ ...modalInp, cursor:"pointer" }}>
               <option value="Never Contacted">Never Contacted</option>
               <option value="Active">Active</option>
             </select>
@@ -580,9 +580,9 @@ function NewContactModal({ onClose, onAdd }) {
           <ModalField label="Last check-in" k="lc"       type="date"               form={form} set={set} errors={errors} />
           <ModalField label="Next check-in" k="nc"       type="date"               form={form} set={set} errors={errors} />
           <div style={{ gridColumn:"1/-1", display:"flex", flexDirection:"column" }}>
-            <label style={lbl}>Notes</label>
+            <label style={modalLbl}>Notes</label>
             <textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="How you know them, talking points…" rows={3}
-              style={{ ...inp, resize:"vertical", minHeight:64 }} />
+              style={{ ...modalInp, resize:"vertical", minHeight:64 }} />
           </div>
         </div>
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end", paddingTop:12, borderTop:"0.5px solid #eee" }}>
