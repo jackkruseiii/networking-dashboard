@@ -514,6 +514,21 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
   );
 }
 
+// ─── New contact field (module level — prevents focus loss) ──────────────
+const modalInp = { fontSize:13, padding:"8px 10px", border:"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box" };
+const modalLbl = { fontSize:11, fontWeight:500, color:"#666", textTransform:"uppercase", letterSpacing:".04em", marginBottom:4, display:"block" };
+
+function ModalField({ label, k, type="text", placeholder="", form, set, errors }) {
+  return (
+    <div style={{ display:"flex", flexDirection:"column" }}>
+      <label style={modalLbl}>{label}</label>
+      <input type={type} value={form[k]} onChange={e => set(k, e.target.value)} placeholder={placeholder}
+        style={{ ...modalInp, borderColor:errors[k]?"#E24B4A":"#e0e0de" }} />
+      {errors[k] && <div style={{ fontSize:11, color:"#A32D2D", marginTop:2 }}>{errors[k]}</div>}
+    </div>
+  );
+}
+
 // ─── New contact modal ────────────────────────────────────────────────────
 function NewContactModal({ onClose, onAdd }) {
   const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", ug:"", grad:"", lc:"", nc:"", notes:"" };
@@ -536,20 +551,6 @@ function NewContactModal({ onClose, onAdd }) {
     onClose();
   }
 
-  const inp = { fontSize:13, padding:"8px 10px", border:"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box" };
-  const lbl = { fontSize:11, fontWeight:500, color:"#666", textTransform:"uppercase", letterSpacing:".04em", marginBottom:4, display:"block" };
-
-  function Field({ label, k, type="text", placeholder="" }) {
-    return (
-      <div style={{ display:"flex", flexDirection:"column" }}>
-        <label style={lbl}>{label}</label>
-        <input type={type} value={form[k]} onChange={e => set(k, e.target.value)} placeholder={placeholder}
-          style={{ ...inp, borderColor:errors[k]?"#E24B4A":"#e0e0de" }} />
-        {errors[k] && <div style={{ fontSize:11, color:"#A32D2D", marginTop:2 }}>{errors[k]}</div>}
-      </div>
-    );
-  }
-
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:window.innerWidth<640?"flex-end":"center", justifyContent:"center", padding:window.innerWidth<640?0:16 }}>
       <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:window.innerWidth<640?"16px 16px 0 0":16, border:"0.5px solid #e0e0de", width:window.innerWidth<640?"100%":"min(580px,100%)", maxHeight:window.innerWidth<640?"92vh":"90vh", overflowY:"auto", padding:window.innerWidth<640?"20px 16px":24 }}>
@@ -558,26 +559,26 @@ function NewContactModal({ onClose, onAdd }) {
           <button onClick={onClose} style={{ marginLeft:"auto", background:"transparent", border:"0.5px solid #ccc", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:"#666" }}>✕ Close</button>
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
-          <Field label="First name *" k="fn"       placeholder="Jane" />
-          <Field label="Last name *"  k="ln"       placeholder="Smith" />
-          <Field label="Company"      k="company"  placeholder="Acme Corp" />
-          <Field label="Industry"     k="industry" placeholder="Defense, Tech…" />
-          <Field label="Relationship" k="rel"      placeholder="USNA classmate, FAO…" />
+          <ModalField label="First name *" k="fn"       placeholder="Jane"        form={form} set={set} errors={errors} />
+          <ModalField label="Last name *"  k="ln"       placeholder="Smith"       form={form} set={set} errors={errors} />
+          <ModalField label="Company"      k="company"  placeholder="Acme Corp"   form={form} set={set} errors={errors} />
+          <ModalField label="Industry"     k="industry" placeholder="Defense, Tech…" form={form} set={set} errors={errors} />
+          <ModalField label="Relationship" k="rel"      placeholder="USNA classmate, FAO…" form={form} set={set} errors={errors} />
           <div style={{ display:"flex", flexDirection:"column" }}>
-            <label style={lbl}>Status</label>
+            <label style={modalLbl}>Status</label>
             <select value={form.status} onChange={e => set("status", e.target.value)} style={{ ...inp, cursor:"pointer" }}>
               <option value="Never Contacted">Never Contacted</option>
               <option value="Active">Active</option>
             </select>
           </div>
-          <Field label="City"          k="city"     placeholder="Arlington" />
-          <Field label="State"         k="state"    placeholder="VA" />
-          <Field label="LinkedIn URL"  k="linkedin" type="url"   placeholder="https://linkedin.com/in/…" />
-          <Field label="Email"         k="email"    type="email" placeholder="jane@example.com" />
-          <Field label="Undergrad"     k="ug"       placeholder="USNA" />
-          <Field label="Grad school"   k="grad"     placeholder="Harvard" />
-          <Field label="Last check-in" k="lc"       type="date" />
-          <Field label="Next check-in" k="nc"       type="date" />
+          <ModalField label="City"          k="city"     placeholder="Arlington"   form={form} set={set} errors={errors} />
+          <ModalField label="State"         k="state"    placeholder="VA"          form={form} set={set} errors={errors} />
+          <ModalField label="LinkedIn URL"  k="linkedin" type="url"   placeholder="https://linkedin.com/in/…" form={form} set={set} errors={errors} />
+          <ModalField label="Email"         k="email"    type="email" placeholder="jane@example.com" form={form} set={set} errors={errors} />
+          <ModalField label="Undergrad"     k="ug"       placeholder="USNA"        form={form} set={set} errors={errors} />
+          <ModalField label="Grad school"   k="grad"     placeholder="Harvard"     form={form} set={set} errors={errors} />
+          <ModalField label="Last check-in" k="lc"       type="date"               form={form} set={set} errors={errors} />
+          <ModalField label="Next check-in" k="nc"       type="date"               form={form} set={set} errors={errors} />
           <div style={{ gridColumn:"1/-1", display:"flex", flexDirection:"column" }}>
             <label style={lbl}>Notes</label>
             <textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="How you know them, talking points…" rows={3}
