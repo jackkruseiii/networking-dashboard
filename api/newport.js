@@ -23,7 +23,7 @@ Search for current news across these six categories for Newport and Aquidneck Is
 5. QUALITY OF LIFE - housing, cost of living, neighborhoods
 6. MILITARY - Naval Station Newport, base news, family resources
 
-For each bullet point, include the source URL where you found the information.
+For sources, include only the domain name (e.g. "newportri.com", "patch.com") not full URLs.
 
 Return ONLY this JSON, no markdown, no preamble:
 {"date":"Week of [date]","topline":"one sentence summary","categories":{"news":{"headline":"...","bullets":["...","..."],"sources":["https://...","https://..."],"sowhat":"..."},"politics":{"headline":"...","bullets":["...","..."],"sources":["https://...","https://..."],"sowhat":"..."},"schools":{"headline":"...","bullets":["...","..."],"sources":["https://...","https://..."],"sowhat":"..."},"activities":{"headline":"...","bullets":["...","..."],"sources":["https://...","https://..."],"sowhat":"..."},"qol":{"headline":"...","bullets":["...","..."],"sources":["https://...","https://..."],"sowhat":"..."},"military":{"headline":"...","bullets":["...","..."],"sources":["https://...","https://..."],"sowhat":"..."}}}`;
@@ -37,7 +37,7 @@ Return ONLY this JSON, no markdown, no preamble:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 4000,
+        max_tokens: 5000,
         system: systemPrompt,
         tools: [{ type: "web_search_20250305", name: "web_search" }],
         messages: [{ role: "user", content: userPrompt }],
