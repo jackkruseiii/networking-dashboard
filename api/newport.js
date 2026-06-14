@@ -30,7 +30,9 @@ export default async function handler(req, res) {
     military:   "Military Community",
   };
 
-  function extractJSON(text) {
+  function extractJSON(raw) {
+    // Strip all code fences first
+    const text = raw.replace(/```[a-z]*\n?/gi, "").replace(/```/g, "").trim();
     const start = text.indexOf("{");
     const end   = text.lastIndexOf("}");
     if (start === -1 || end === -1 || end <= start) return null;
