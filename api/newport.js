@@ -52,7 +52,7 @@ RULES:
 - Never fill gaps with background knowledge or assumptions.
 - Every claim must be traceable to a specific search result.
 - Include the source domain (e.g. "newportri.com") for each bullet.
-- Respond in JSON only, no markdown, no preamble:
+- Respond in JSON only, no markdown, no preamble, no code fences:
 {"status":"ok","headline":"one sentence headline","bullets":["bullet 1","bullet 2","bullet 3"],"sources":["domain1.com","domain2.com"],"sowhat":"one sentence on why this matters for someone moving to Newport in 2027","raw_claims":["claim1","claim2","claim3"]}`,
         messages: [{ role: "user", content: `Search for and summarize current ${label} information for Newport, RI and Aquidneck Island: ${query}` }],
       }),
@@ -67,7 +67,8 @@ RULES:
       .join("\n");
 
     try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      const clean = text.replace(/```json|```/g, "").trim();
+      const jsonMatch = clean.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return { status: "parse_error", detail: text.slice(0, 200) };
       return JSON.parse(jsonMatch[0]);
     } catch (e) {
@@ -89,7 +90,7 @@ RULES:
         model: "claude-sonnet-4-6",
         max_tokens: 800,
         system: `You are a fact-checker. Given a briefing and its claims, identify any claim that appears to be assumed, inferred, or not directly supported by real search results.
-Respond in JSON only, no markdown, no preamble:
+Respond in JSON only, no markdown, no preamble, no code fences:
 {"verified":true/false,"flagged_claims":["..."],"clean_bullets":["..."],"clean_sowhat":"..."}
 If verified is false, rewrite clean_bullets and clean_sowhat with flagged claims removed or softened to "reportedly".`,
         messages: [{
@@ -108,7 +109,8 @@ If verified is false, rewrite clean_bullets and clean_sowhat with flagged claims
       .join("\n");
 
     try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      const clean = text.replace(/```json|```/g, "").trim();
+      const jsonMatch = clean.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return null;
       return JSON.parse(jsonMatch[0]);
     } catch {
@@ -141,9 +143,7 @@ If verified is false, rewrite clean_bullets and clean_sowhat with flagged claims
   try {
     const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-    // Run all 6 categories in parallel
     const results = await Promise.all(CATEGORIES.map(cat => processCategory(cat)));
-
     const categories = Object.fromEntries(results);
 
     return res.status(200).json({
