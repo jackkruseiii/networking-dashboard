@@ -31,16 +31,26 @@ export default async function handler(req, res) {
   };
 
   function extractJSON(raw) {
-    // Strip all code fences first
-    const text = raw.replace(/```[a-z]*\n?/gi, "").replace(/```/g, "").trim();
-    const start = text.indexOf("{");
-    const end   = text.lastIndexOf("}");
-    if (start === -1 || end === -1 || end <= start) return null;
-    try {
-      return JSON.parse(text.slice(start, end + 1));
-    } catch {
-      return null;
+    // Try every { in the string until one parses successfully
+    let depth = 0;
+    let start = -1;
+    for (let i = 0; i < raw.length; i++) {
+      if (raw[i] === "{") {
+        if (start === -1) start = i;
+        depth++;
+      } else if (raw[i] === "}") {
+        depth--;
+        if (depth === 0 && start !== -1) {
+          try {
+            return JSON.parse(raw.slice(start, i + 1));
+          } catch {
+            // keep scanning
+            start = -1;
+          }
+        }
+      }
     }
+    return null;
   }
 
   async function fetchAndSummarize(category) {
