@@ -27,11 +27,8 @@ export default function NewportDigest({ onBack }) {
       const res = await fetch("/api/newport", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userPrompt: `Generate my Newport, RI weekly intelligence digest for the week of ${today}. Search for the latest information across all six categories and return the JSON digest.`,
-        }),
+        body: JSON.stringify({ userPrompt: `Generate Newport RI digest for ${today}` }),
       });
-
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Unknown error");
       setDigest(data.digest);
@@ -70,6 +67,16 @@ export default function NewportDigest({ onBack }) {
     sources:      { marginTop: 14 },
     sourcesLabel: { fontSize: 10, letterSpacing: ".15em", textTransform: "uppercase", color: "#999", marginBottom: 6 },
     sourceLink:   { fontSize: 12, color: "#0a2342", textDecoration: "underline", wordBreak: "break-all" },
+    tier2Box:     { marginTop: 20, paddingTop: 16, borderTop: "0.5px solid #f0f0ee" },
+    tier2Label:   { fontSize: 10, letterSpacing: ".15em", textTransform: "uppercase", color: "#bbb", marginBottom: 8 },
+    tier2Grid:    { display: "flex", flexWrap: "wrap", gap: 6 },
+    tier2Link:    { fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "0.5px solid #e0e0de", color: "#666", textDecoration: "none", background: "#fafaf8" },
+    notable:      { background: "#fff", border: "0.5px solid #e0e0de", borderRadius: 12, padding: "20px 24px", marginBottom: 24 },
+    notableLabel: { fontSize: 10, letterSpacing: ".15em", textTransform: "uppercase", color: "#c8a96e", marginBottom: 10 },
+    notableName:  { fontSize: 18, fontWeight: 700, color: "#1a1a18", marginBottom: 2 },
+    notableRole:  { fontSize: 12, color: "#999", marginBottom: 12 },
+    notableBio:   { fontSize: 14, color: "#333", lineHeight: 1.7, marginBottom: 10 },
+    notableWhy:   { fontSize: 13, color: "#0a2342", fontStyle: "italic", lineHeight: 1.5 },
     footer:       { display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "0.5px solid #eee", paddingTop: 16, marginTop: 24 },
     dateStr:      { fontSize: 11, color: "#bbb", letterSpacing: ".05em" },
     regenBtn:     { fontSize: 12, padding: "6px 14px", borderRadius: 7, border: "0.5px solid #ccc", background: "transparent", color: "#555", cursor: "pointer" },
@@ -100,7 +107,7 @@ export default function NewportDigest({ onBack }) {
         {!digest && !loading && !error && (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
             <div style={{ fontSize: 15, color: "#999", fontStyle: "italic", maxWidth: 440, margin: "0 auto 28px", lineHeight: 1.7 }}>
-              AI-powered weekly briefing on Newport, RI — news, politics, schools, events, quality of life, and military community intel in one digest.
+              AI-powered weekly briefing on Newport, RI — news, politics, schools, events, quality of life, military community, and a rotating Newport Notable.
             </div>
             <button style={s.genBtn} onClick={generateDigest}>Generate This Week's Digest</button>
             <div style={{ marginTop: 12, fontSize: 11, color: "#bbb", letterSpacing: ".05em" }}>Live web search · Takes ~40 seconds</div>
@@ -111,7 +118,7 @@ export default function NewportDigest({ onBack }) {
           <div style={{ textAlign: "center", padding: "80px 0" }}>
             <div style={{ fontSize: 32, marginBottom: 16 }}>⚓</div>
             <div style={{ fontSize: 17, color: "#0a2342", fontWeight: 600, marginBottom: 6 }}>Scanning Newport sources…</div>
-            <div style={{ fontSize: 13, color: "#999" }}>Searching news, politics, schools, events, and more</div>
+            <div style={{ fontSize: 13, color: "#999" }}>Searching news, politics, schools, events, military, and community figures</div>
           </div>
         )}
 
@@ -128,6 +135,24 @@ export default function NewportDigest({ onBack }) {
               <div style={s.toplineLabel}>This Week's Topline</div>
               <div style={s.toplineText}>{digest.topline}</div>
             </div>
+
+            {digest.notable && (
+              <div style={s.notable}>
+                <div style={s.notableLabel}>⭐ Newport Notable</div>
+                <div style={s.notableName}>{digest.notable.name}</div>
+                <div style={s.notableRole}>{digest.notable.role}</div>
+                <div style={s.rule} />
+                <div style={s.notableBio}>{digest.notable.bio}</div>
+                <div style={s.notableWhy}>Why it matters: {digest.notable.relevance}</div>
+                {digest.notable.source && (
+                  <div style={{ marginTop: 10 }}>
+                    <a href={`https://${digest.notable.source}`} target="_blank" rel="noreferrer" style={s.sourceLink}>
+                      {digest.notable.source}
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div style={s.catNav}>
               {CATEGORIES.map(cat => (
@@ -162,11 +187,23 @@ export default function NewportDigest({ onBack }) {
                     <div style={s.sourcesLabel}>Sources</div>
                     {active.sources.map((src, i) => (
                       <div key={i} style={{ marginBottom: 4 }}>
-                        <a href={src} target="_blank" rel="noreferrer" style={s.sourceLink}>
+                        <a href={src.startsWith("http") ? src : `https://${src}`} target="_blank" rel="noreferrer" style={s.sourceLink}>
                           {src}
                         </a>
                       </div>
                     ))}
+                  </div>
+                )}
+                {active.tier2 && active.tier2.length > 0 && (
+                  <div style={s.tier2Box}>
+                    <div style={s.tier2Label}>Go Deeper</div>
+                    <div style={s.tier2Grid}>
+                      {active.tier2.map((link, i) => (
+                        <a key={i} href={link.url} target="_blank" rel="noreferrer" style={s.tier2Link}>
+                          {link.label}
+                        </a>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
