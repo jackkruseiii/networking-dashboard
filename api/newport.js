@@ -69,8 +69,7 @@ RULES:
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return { status: "parse_error", detail: text.slice(0, 200) };
-      const parsed = JSON.parse(jsonMatch[0]);
-      return parsed;
+      return JSON.parse(jsonMatch[0]);
     } catch (e) {
       return { status: "parse_error", detail: text.slice(0, 200) };
     }
@@ -117,36 +116,47 @@ If verified is false, rewrite clean_bullets and clean_sowhat with flagged claims
     }
   }
 
-  try {
-    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-    const categories = {};
+  async function processCategory(category) {
+    const summary = await fetchAndSummarize(category);
 
-    for (const category of CATEGORIES) {
-      const summary = await fetchAndSummarize(category);
-
-      if (!summary || summary.status !== "ok") {
-        categories[category] = {
-          headline: `No verified data available (${summary?.status || "unknown"}: ${summary?.detail || "no detail"})`,
-          bullets: ["Check back next week or visit the source directly."],
-          sources: [],
-          sowhat: "Data could not be verified from live sources this week.",
-        };
-        continue;
-      }
-
-      const verified = await verifyBriefing(summary);
-
-      categories[category] = {
-        headline: summary.headline,
-        bullets:  verified ? verified.clean_bullets : summary.bullets,
-        sources:  summary.sources || [],
-        sowhat:   verified ? verified.clean_sowhat  : summary.sowhat,
-      };
+    if (!summary || summary.status !== "ok") {
+      return [category, {
+        headline: `No verified data available (${summary?.status || "unknown"}: ${summary?.detail || "no detail"})`,
+        bullets: ["Check back next week or visit the source directly."],
+        sources: [],
+        sowhat: "Data could not be verified from live sources this week.",
+      }];
     }
 
-    const topline = `Newport intelligence digest for the week of ${today} — covering local news, politics, schools, activities, quality of life, and military community.`;
+    const verified = await verifyBriefing(summary);
+
+    return [category, {
+      headline: summary.headline,
+      bullets:  verified ? verified.clean_bullets : summary.bullets,
+      sources:  summary.sources || [],
+      sowhat:   verified ? verified.clean_sowhat  : summary.sowhat,
+    }];
+  }
+
+  try {
+    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+    // Run all 6 categories in parallel
+    const results = await Promise.all(CATEGORIES.map(cat => processCategory(cat)));
+
+    const categories = Object.fromEntries(results);
 
     return res.status(200).json({
       success: true,
       digest: {
         date: `Week of ${today}`,
+        topline: `Newport intelligence digest for the week of ${today} — covering local news, politics, schools, activities, quality of life, and military community.`,
+        categories,
+      },
+    });
+
+  } catch (err) {
+    console.error("Newport proxy error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+}
