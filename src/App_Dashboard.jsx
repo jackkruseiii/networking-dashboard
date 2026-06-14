@@ -695,11 +695,6 @@ export default function NetworkingDashboard({ onNewport }) {
         <button onClick={() => fetchData(true)} disabled={refreshing} title="Reload contacts from sheet"
           style={{ fontSize:13, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#555", cursor:"pointer" }}>
           {refreshing ? "⏳" : "🔄"}
-        </button>
-        {onNewport && (
-          <button onClick={onNewport} style={{ fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#0a2342", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
-            ⚓ Newport Intel
-          </button>
         )}
         <button onClick={() => setShowNew(true)} style={{ fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
           + New contact
