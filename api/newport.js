@@ -30,6 +30,17 @@ export default async function handler(req, res) {
     military:   "Military Community",
   };
 
+  function extractJSON(text) {
+    const start = text.indexOf("{");
+    const end   = text.lastIndexOf("}");
+    if (start === -1 || end === -1 || end <= start) return null;
+    try {
+      return JSON.parse(text.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
+
   async function fetchAndSummarize(category) {
     const query = CATEGORY_QUERIES[category];
     const label = CATEGORY_LABELS[category];
@@ -52,8 +63,8 @@ RULES:
 - Never fill gaps with background knowledge or assumptions.
 - Every claim must be traceable to a specific search result.
 - Include the source domain (e.g. "newportri.com") for each bullet.
-- Respond in JSON only, no markdown, no preamble, no code fences:
-{"status":"ok","headline":"one sentence headline","bullets":["bullet 1","bullet 2","bullet 3"],"sources":["domain1.com","domain2.com"],"sowhat":"one sentence on why this matters for someone moving to Newport in 2027","raw_claims":["claim1","claim2","claim3"]}`,
+- Your entire response must be a single raw JSON object and nothing else. No intro text, no explanation, no code fences, no markdown. Start your response with { and end with }.
+- Format: {"status":"ok","headline":"one sentence headline","bullets":["bullet 1","bullet 2","bullet 3"],"sources":["domain1.com","domain2.com"],"sowhat":"one sentence on why this matters for someone moving to Newport in 2027","raw_claims":["claim1","claim2","claim3"]}`,
         messages: [{ role: "user", content: `Search for and summarize current ${label} information for Newport, RI and Aquidneck Island: ${query}` }],
       }),
     });
@@ -66,14 +77,9 @@ RULES:
       .filter(Boolean)
       .join("\n");
 
-    try {
-      const clean = text.replace(/```json|```/g, "").trim();
-      const jsonMatch = clean.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return { status: "parse_error", detail: text.slice(0, 200) };
-      return JSON.parse(jsonMatch[0]);
-    } catch (e) {
-      return { status: "parse_error", detail: text.slice(0, 200) };
-    }
+    const parsed = extractJSON(text);
+    if (!parsed) return { status: "parse_error", detail: text.slice(0, 200) };
+    return parsed;
   }
 
   async function verifyBriefing(summary) {
@@ -90,8 +96,8 @@ RULES:
         model: "claude-sonnet-4-6",
         max_tokens: 800,
         system: `You are a fact-checker. Given a briefing and its claims, identify any claim that appears to be assumed, inferred, or not directly supported by real search results.
-Respond in JSON only, no markdown, no preamble, no code fences:
-{"verified":true/false,"flagged_claims":["..."],"clean_bullets":["..."],"clean_sowhat":"..."}
+Your entire response must be a single raw JSON object and nothing else. No intro text, no explanation, no code fences, no markdown. Start your response with { and end with }.
+Format: {"verified":true,"flagged_claims":[],"clean_bullets":["..."],"clean_sowhat":"..."}
 If verified is false, rewrite clean_bullets and clean_sowhat with flagged claims removed or softened to "reportedly".`,
         messages: [{
           role: "user",
@@ -108,14 +114,7 @@ If verified is false, rewrite clean_bullets and clean_sowhat with flagged claims
       .filter(Boolean)
       .join("\n");
 
-    try {
-      const clean = text.replace(/```json|```/g, "").trim();
-      const jsonMatch = clean.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
-      return JSON.parse(jsonMatch[0]);
-    } catch {
-      return null;
-    }
+    return extractJSON(text);
   }
 
   async function processCategory(category) {
