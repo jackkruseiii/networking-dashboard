@@ -31,44 +31,44 @@ export default async function handler(req, res) {
   };
 
   function extractJSON(raw) {
-    // Extract between our unique delimiters
     const start = raw.indexOf("##JSON_START##");
     const end   = raw.indexOf("##JSON_END##");
     if (start !== -1 && end !== -1) {
       try {
         return JSON.parse(raw.slice(start + 14, end).trim());
-      } catch {
-        // fall through to bracket scan
-      }
+      } catch {}
     }
-    // Fallback: scan for outermost { }
     let depth = 0;
     let begin = -1;
     for (let i = 0; i < raw.length; i++) {
       if (raw[i] === "{") { if (begin === -1) begin = i; depth++; }
-      else if (raw[i] === "}") { depth--; if (depth === 0 && begin !== -1) {
-        try { return JSON.parse(raw.slice(begin, i + 1)); } catch { begin = -1; }
-      }}
+      else if (raw[i] === "}") {
+        depth--;
+        if (depth === 0 && begin !== -1) {
+          try { return JSON.parse(raw.slice(begin, i + 1)); } catch { begin = -1; }
+        }
+      }
     }
     return null;
   }
 
-  async function fetchAndSummarize(category) {
+  async function processCategory(category) {
     const query = CATEGORY_QUERIES[category];
     const label = CATEGORY_LABELS[category];
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        system: `You are a news briefing writer for a U.S. Navy officer relocating to Newport, RI in summer 2027.
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1000,
+          tools: [{ type: "web_search_20250305", name: "web_search" }],
+          system: `You are a news briefing writer for a U.S. Navy officer relocating to Newport, RI in summer 2027.
 RULES:
 - Only use facts that appear in the search results returned by your web_search tool.
 - If search returns no results, respond with: ##JSON_START##{"status":"no_data"}##JSON_END##
@@ -76,26 +76,71 @@ RULES:
 - Every claim must be traceable to a specific search result.
 - Include the source domain (e.g. "newportri.com") for each bullet.
 - Wrap your JSON in ##JSON_START## and ##JSON_END## delimiters like this:
-##JSON_START##{"status":"ok","headline":"one sentence headline","bullets":["bullet 1","bullet 2","bullet 3"],"sources":["domain1.com","domain2.com"],"sowhat":"one sentence on why this matters for someone moving to Newport in 2027","raw_claims":["claim1","claim2","claim3"]}##JSON_END##
-- You may include explanation before or after the delimiters but the JSON must be between them.`,
-        messages: [{ role: "user", content: `Search for and summarize current ${label} information for Newport, RI and Aquidneck Island: ${query}` }],
-      }),
-    });
+##JSON_START##{"status":"ok","headline":"one sentence headline","bullets":["bullet 1","bullet 2","bullet 3"],"sources":["domain1.com","domain2.com"],"sowhat":"one sentence on why this matters for someone moving to Newport in 2027"}##JSON_END##`,
+          messages: [{ role: "user", content: `Search for and summarize current ${label} information for Newport, RI and Aquidneck Island: ${query}` }],
+        }),
+      });
 
-    const data = await response.json();
-    if (!response.ok) return { status: "api_error", detail: JSON.stringify(data).slice(0, 200) };
+      const data = await response.json();
+      if (!response.ok) {
+        return [category, {
+          headline: "API error — try refreshing",
+          bullets: ["Could not reach Anthropic API."],
+          sources: [],
+          sowhat: "Try again in a moment.",
+        }];
+      }
 
-    const text = (data.content || [])
-      .map(block => (block.type === "text" ? block.text : ""))
-      .filter(Boolean)
-      .join("\n");
+      const text = (data.content || [])
+        .map(block => (block.type === "text" ? block.text : ""))
+        .filter(Boolean)
+        .join("\n");
 
-    const parsed = extractJSON(text);
-    if (!parsed) return { status: "parse_error", detail: text.slice(0, 200) };
-    return parsed;
+      const parsed = extractJSON(text);
+
+      if (!parsed || parsed.status !== "ok") {
+        return [category, {
+          headline: "No verified data this week",
+          bullets: ["Visit newportri.com or patch.com/rhode-island/newport directly."],
+          sources: [],
+          sowhat: "Check the source directly for the latest.",
+        }];
+      }
+
+      return [category, {
+        headline: parsed.headline,
+        bullets:  parsed.bullets  || [],
+        sources:  parsed.sources  || [],
+        sowhat:   parsed.sowhat   || "",
+      }];
+
+    } catch (err) {
+      return [category, {
+        headline: "Error loading this category",
+        bullets: ["An unexpected error occurred."],
+        sources: [],
+        sowhat: "Try refreshing the digest.",
+      }];
+    }
   }
 
-  async function verifyBriefing(summary) {
-    if (!summary || summary.status !== "ok") return null;
+  try {
+    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-    const response = await fetch("https://api.anthropic.com/v
+    const results = await Promise.all(CATEGORIES.map(cat => processCategory(cat)));
+    const categories = Object.fromEntries(results);
+
+    return res.status(200).json({
+      success: true,
+      digest: {
+        date: `Week of ${today}`,
+        topline: `Newport intelligence digest for the week of ${today} — covering local news, politics, schools, activities, quality of life, and military community.`,
+        categories,
+      },
+    });
+
+  } catch (err) {
+    console.error("Newport proxy error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+}
