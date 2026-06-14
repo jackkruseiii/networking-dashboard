@@ -59,7 +59,7 @@ RULES:
     });
 
     const data = await response.json();
-    if (!response.ok) return { status: "api_error" };
+    if (!response.ok) return { status: "api_error", detail: JSON.stringify(data).slice(0, 200) };
 
     const text = (data.content || [])
       .map(block => (block.type === "text" ? block.text : ""))
@@ -68,11 +68,11 @@ RULES:
 
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return { status: "parse_error" };
+      if (!jsonMatch) return { status: "parse_error", detail: text.slice(0, 200) };
       const parsed = JSON.parse(jsonMatch[0]);
       return parsed;
-    } catch {
-      return { status: "parse_error" };
+    } catch (e) {
+      return { status: "parse_error", detail: text.slice(0, 200) };
     }
   }
 
@@ -89,7 +89,7 @@ RULES:
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         max_tokens: 800,
-        system: `You are a fact-checker. Given a briefing and its claims, identify any claim that appears to be assumed, inferred, or not directly supported by real search results. 
+        system: `You are a fact-checker. Given a briefing and its claims, identify any claim that appears to be assumed, inferred, or not directly supported by real search results.
 Respond in JSON only, no markdown, no preamble:
 {"verified":true/false,"flagged_claims":["..."],"clean_bullets":["..."],"clean_sowhat":"..."}
 If verified is false, rewrite clean_bullets and clean_sowhat with flagged claims removed or softened to "reportedly".`,
@@ -124,10 +124,9 @@ If verified is false, rewrite clean_bullets and clean_sowhat with flagged claims
     for (const category of CATEGORIES) {
       const summary = await fetchAndSummarize(category);
 
-      // Fail closed — if no data or error, show placeholder
       if (!summary || summary.status !== "ok") {
         categories[category] = {
-          headline: "No verified data available this week",
+          headline: `No verified data available (${summary?.status || "unknown"}: ${summary?.detail || "no detail"})`,
           bullets: ["Check back next week or visit the source directly."],
           sources: [],
           sowhat: "Data could not be verified from live sources this week.",
@@ -135,14 +134,13 @@ If verified is false, rewrite clean_bullets and clean_sowhat with flagged claims
         continue;
       }
 
-      // Verification pass
       const verified = await verifyBriefing(summary);
 
       categories[category] = {
         headline: summary.headline,
-        bullets:  verified ? verified.clean_bullets  : summary.bullets,
+        bullets:  verified ? verified.clean_bullets : summary.bullets,
         sources:  summary.sources || [],
-        sowhat:   verified ? verified.clean_sowhat   : summary.sowhat,
+        sowhat:   verified ? verified.clean_sowhat  : summary.sowhat,
       };
     }
 
@@ -152,13 +150,3 @@ If verified is false, rewrite clean_bullets and clean_sowhat with flagged claims
       success: true,
       digest: {
         date: `Week of ${today}`,
-        topline,
-        categories,
-      },
-    });
-
-  } catch (err) {
-    console.error("Newport proxy error:", err);
-    return res.status(500).json({ error: err.message });
-  }
-}
