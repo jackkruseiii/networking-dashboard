@@ -81,6 +81,17 @@ export default async function handler(req, res) {
     // ── 3. Interactions from last 7 days ──────────────────────────────────
     const sevenDaysAgo = new Date(TODAY.getTime() - 7 * 24 * 60 * 60 * 1000);
 
+    // ── 2b. Contacts auto-moved to Inactive this week ────────────────────
+    const newlyInactive = contacts.filter(c => {
+      if (c.status !== "Inactive") return false;
+      const autoNote = interactions.find(i =>
+        i.id === c.id &&
+        i.note.includes("Auto-moved to Inactive") &&
+        pd(i.timestamp) >= sevenDaysAgo
+      );
+      return !!autoNote;
+    });
+
     const recentInteractions = interactions
       .filter(i => { const d = pd(i.timestamp); return d && d >= sevenDaysAgo; })
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
@@ -110,10 +121,17 @@ export default async function handler(req, res) {
           `- ${i.formattedDate}: ${i.contactName} (${i.company}) — "${i.note}"`
         ).join("\n");
 
+    const newlyInactiveText = newlyInactive.length === 0
+      ? "None this week."
+      : newlyInactive.map(c => `- ${c.fn} ${c.ln} (${c.company}) — auto-moved to Inactive after 180+ days`).join("\n");
+
     const aiPrompt = `You are reviewing the weekly networking activity for Jack Kruse, a Navy FAO and Military Group Chief at the U.S. Embassy Brazil, transitioning out of the military in 2028-2029. His primary focus is the education sector.
 
 OVERDUE CONTACTS (Active, 90+ days since last contact):
 ${overdueText}
+
+CONTACTS AUTO-MOVED TO INACTIVE THIS WEEK (180+ days, no contact):
+${newlyInactiveText}
 
 INTERACTIONS THIS WEEK:
 ${interactionsText}
@@ -239,6 +257,21 @@ Format as a numbered list. Each item should be 1-2 sentences max. Be direct and 
         </tbody>
       </table>
     </div>
+
+    ${newlyInactive.length > 0 ? `
+    <!-- Newly inactive -->
+    <div style="margin-bottom:28px;">
+      <div style="font-size:11px;font-weight:600;color:#777;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">Auto-Moved This Week</div>
+      <div style="font-size:18px;font-weight:600;color:#1a1a18;margin-bottom:16px;">Moved to Inactive (${newlyInactive.length})</div>
+      <div style="background:#f9f9f7;border-radius:10px;padding:14px 16px;border:1px solid #e0e0da;">
+        ${newlyInactive.map(c => `
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0f0ec;">
+            <div style="width:28px;height:28px;border-radius:50%;background:#F0F0EE;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#777;flex-shrink:0;">${(c.fn[0]||"") + (c.ln[0]||"")}</div>
+            <div style="flex:1;font-size:14px;color:#333;">${c.fn} ${c.ln} <span style="color:#999;font-size:12px;">· ${c.company || "—"}</span></div>
+            <div style="font-size:11px;padding:2px 8px;border-radius:5px;background:#F0F0EE;color:#777;">💤 Inactive</div>
+          </div>`).join("")}
+      </div>
+    </div>` : ""}
 
     <!-- Recent interactions -->
     <div style="margin-bottom:28px;">
