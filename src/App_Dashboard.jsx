@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 
+// ─── Responsive hook ─────────────────────────────────────────────────────
 function useWindowWidth() {
   const [width, setWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1024);
   useEffect(() => {
@@ -10,6 +11,7 @@ function useWindowWidth() {
   return width;
 }
 
+// ─── API helpers ──────────────────────────────────────────────────────────
 async function postToSheet(type, data) {
   try {
     const res = await fetch("/api/log", {
@@ -37,6 +39,20 @@ function todayStr() {
   return d.toISOString().split("T")[0];
 }
 
+async function autoMarkInactive(contact) {
+  const updated = { ...contact, status: "Inactive" };
+  await updateContact(updated);
+  await postToSheet("note", {
+    id: contact.id,
+    firstName: contact.fn,
+    lastName: contact.ln,
+    note: `Auto-moved to Inactive — ${INACTIVE_THRESHOLD} days since last contact (${contact.lc ? new Date(contact.lc).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }) : "unknown"}).`,
+    timestamp: new Date().toISOString(),
+  });
+  return updated;
+}
+
+// ─── LinkedIn message generator ───────────────────────────────────────────
 async function generateEmailDraft(contact, interactions) {
   const history = interactions
     .filter(i => {
@@ -120,6 +136,7 @@ LINKEDIN MESSAGE RULES:
   return { subject: "", body };
 }
 
+// ─── Sheet row mapper ─────────────────────────────────────────────────────
 function mapSheetRow(row) {
   return {
     id:       String(row["ID"]                   || "").trim(),
@@ -151,14 +168,17 @@ function mapInteractionRow(row) {
   };
 }
 
-const TODAY     = new Date();
-const THRESHOLD = 90;
+// ─── Constants ────────────────────────────────────────────────────────────
+const TODAY               = new Date();
+const THRESHOLD           = 90;
+const INACTIVE_THRESHOLD  = 180;
 const AV = {
-  cold:    { bg:"#E6F1FB", color:"#0C447C" },
-  overdue: { bg:"#FAEEDA", color:"#633806" },
-  active:  { bg:"#EAF3DE", color:"#3B6D11" },
+  cold:     { bg:"#E6F1FB", color:"#0C447C" },
+  overdue:  { bg:"#FAEEDA", color:"#633806" },
+  active:   { bg:"#EAF3DE", color:"#3B6D11" },
+  inactive: { bg:"#F0F0EE", color:"#777"    },
 };
-const COL   = { cold:"#185FA5", overdue:"#854F0B", active:"#3B6D11" };
+const COL   = { cold:"#185FA5", overdue:"#854F0B", active:"#3B6D11", inactive:"#888" };
 const BADGE = {
   never:   { background:"#f5f5f3", border:"1px solid #ddd",    color:"#999"    },
   overdue: { background:"#FAEEDA", border:"1px solid #EF9F27", color:"#854F0B" },
@@ -181,6 +201,7 @@ function lcCls(d, type) {
   return ds(d) >= THRESHOLD ? "overdue" : "recent";
 }
 
+// ─── Password gate ────────────────────────────────────────────────────────
 const APP_PASSWORD = import.meta.env.VITE_APP_PASSWORD || "network2026";
 
 function PasswordGate({ onUnlock }) {
@@ -209,6 +230,7 @@ function PasswordGate({ onUnlock }) {
   );
 }
 
+// ─── Last contact badge ───────────────────────────────────────────────────
 function LastContactBadge({ c, type }) {
   const d = pd(c.lc);
   if (!d) return <div style={{ fontSize:11, padding:"5px 9px", borderRadius:7, ...BADGE.never, width:"fit-content", marginBottom:9 }}>No interaction on record</div>;
@@ -222,6 +244,7 @@ function LastContactBadge({ c, type }) {
   );
 }
 
+// ─── Contact card ─────────────────────────────────────────────────────────
 function ContactCard({ c, idx, type, onOpen, onContactedToday, sessionNotes, setSessionNotes }) {
   const key  = `${type}-${c.id||c.fn}-${c.ln}-${idx}`;
   const av   = AV[type];
@@ -299,6 +322,7 @@ function ContactCard({ c, idx, type, onOpen, onContactedToday, sessionNotes, set
   );
 }
 
+// ─── Reusable edit field components (module level — prevents focus loss) ──
 const detailInp = { fontSize:13, padding:"7px 10px", border:"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box" };
 const detailLbl = { fontSize:10, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:3, display:"block" };
 
@@ -328,6 +352,7 @@ function DetailSelectField({ label, k, options, form, setForm, editing }) {
   );
 }
 
+// ─── InfoItem (module level — prevents focus loss) ────────────────────────
 function InfoItem({ label, value }) {
   return (
     <div style={{ background:"#f9f9f7", borderRadius:8, padding:"8px 10px" }}>
@@ -337,6 +362,7 @@ function InfoItem({ label, value }) {
   );
 }
 
+// ─── Detail / Edit panel ──────────────────────────────────────────────────
 function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, setSessionNotes }) {
   const [editing,      setEditing]      = useState(false);
   const [form,         setForm]         = useState({ ...c });
@@ -349,6 +375,8 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
   if (!c) return null;
   const av  = AV[type] || AV.active;
   const d   = pd(editing ? form.lc : c.lc);
+  const nd  = pd(editing ? form.nc : c.nc);
+  const loc = [c.city, c.state].filter(Boolean).join(", ");
   const cls = lcCls(d, type);
   const days = d ? ds(d) : null;
   const dl   = days === null ? null : days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
@@ -390,6 +418,7 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:window.innerWidth<640?"flex-end":"center", justifyContent:"center", padding:window.innerWidth<640?0:16 }}>
       <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:window.innerWidth<640?"16px 16px 0 0":16, border:"0.5px solid #e0e0de", width:window.innerWidth<640?"100%":"min(580px,100%)", maxHeight:window.innerWidth<640?"92vh":"88vh", overflowY:"auto", padding:window.innerWidth<640?"20px 16px":24 }}>
 
+        {/* Header */}
         <div style={{ display:"flex", alignItems:"flex-start", gap:14, marginBottom:18 }}>
           <div style={{ width:52, height:52, minWidth:52, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:600, background:av.bg, color:av.color }}>{ini(editing?form:c)}</div>
           <div style={{ flex:1 }}>
@@ -406,10 +435,12 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
           </div>
         </div>
 
+        {/* Last contact badge */}
         <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:12, padding:"5px 10px", borderRadius:8, marginBottom:16, ...BADGE[cls], width:"fit-content" }}>
           {d ? <><span style={{ fontWeight:500 }}>Last contact: {fd(d)}</span><span style={{ opacity:.75 }}>— {dl}</span></> : <span>No interaction on record</span>}
         </div>
 
+        {/* Links */}
         {(c.linkedin || c.email) && !editing && (
           <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
             {c.linkedin && <a href={c.linkedin} target="_blank" rel="noreferrer" style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>LinkedIn ↗</a>}
@@ -417,6 +448,7 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
           </div>
         )}
 
+        {/* Details grid */}
         <div style={{ marginBottom:18 }}>
           <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>Details</div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
@@ -435,6 +467,7 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
           </div>
         </div>
 
+        {/* Log a note */}
         <div style={{ marginBottom:18 }}>
           <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>Log a note</div>
           <textarea value={note} onChange={e => setSessionNotes(p => ({ ...p, [noteKey]: e.target.value }))}
@@ -446,6 +479,7 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
           {noteSaved && <span style={{ fontSize:11, color:"#3B6D11", marginLeft:8 }}>✓ Saved to sheet</span>}
         </div>
 
+        {/* LinkedIn draft */}
         <div style={{ marginBottom:18 }}>
           <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>LinkedIn message</div>
           <button onClick={handleGenerateDraft} disabled={draftLoading}
@@ -472,6 +506,7 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
           )}
         </div>
 
+        {/* Interaction history */}
         <div>
           <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>
             Interaction history {history.length > 0 && <span style={{ fontWeight:400 }}>({history.length})</span>}
@@ -494,6 +529,7 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
   );
 }
 
+// ─── New contact field (module level — prevents focus loss) ──────────────
 const modalInp = { fontSize:13, padding:"8px 10px", border:"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box" };
 const modalLbl = { fontSize:11, fontWeight:500, color:"#666", textTransform:"uppercase", letterSpacing:".04em", marginBottom:4, display:"block" };
 
@@ -508,6 +544,7 @@ function ModalField({ label, k, type="text", placeholder="", form, set, errors }
   );
 }
 
+// ─── New contact modal ────────────────────────────────────────────────────
 function NewContactModal({ onClose, onAdd }) {
   const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", ug:"", grad:"", lc:"", nc:"", notes:"" };
   const [form,    setForm]    = useState(empty);
@@ -572,6 +609,7 @@ function NewContactModal({ onClose, onAdd }) {
   );
 }
 
+// ─── Main dashboard ───────────────────────────────────────────────────────
 export default function NetworkingDashboard({ onNewport }) {
   const width = useWindowWidth();
   const isMobile = width < 640;
@@ -610,26 +648,44 @@ export default function NetworkingDashboard({ onNewport }) {
     fetchData();
   }, [unlocked]);
 
-  const { cold, overdue, active } = useMemo(() => {
+  // Auto-move contacts to Inactive after 180 days — runs once on load
+  useEffect(() => {
+    if (!unlocked || contacts.length === 0) return;
+    const toDeactivate = contacts.filter(c => {
+      if (c.status !== "Active") return false;
+      const d = pd(c.lc);
+      return d && ds(d) >= INACTIVE_THRESHOLD;
+    });
+    if (toDeactivate.length === 0) return;
+    toDeactivate.forEach(async c => {
+      const updated = await autoMarkInactive(c);
+      setContacts(prev => prev.map(x => x.id === updated.id ? updated : x));
+    });
+  }, [unlocked, contacts.length]);
+
+  const { cold, overdue, active, inactive } = useMemo(() => {
     const q    = query.toLowerCase().trim();
     const list = q ? contacts.filter(c => [c.fn,c.ln,c.company,c.industry,c.rel,c.city,c.state,c.notes].join(" ").toLowerCase().includes(q)) : contacts;
-    const cold    = list.filter(c => c.status === "Never Contacted");
-    const allAct  = list.filter(c => c.status === "Active");
-    const overdue = allAct.filter(c => { const d=pd(c.lc); return d && ds(d)>=THRESHOLD; }).sort((a,b)=>new Date(a.lc)-new Date(b.lc));
-    const active  = allAct.filter(c => { const d=pd(c.lc); return !d||ds(d)<THRESHOLD; }).sort((a,b)=>new Date(b.lc)-new Date(a.lc));
-    return { cold, overdue, active };
+    const cold     = list.filter(c => c.status === "Never Contacted");
+    const allAct   = list.filter(c => c.status === "Active");
+    const overdue  = allAct.filter(c => { const d=pd(c.lc); return d && ds(d)>=THRESHOLD; }).sort((a,b)=>new Date(a.lc)-new Date(b.lc));
+    const active   = allAct.filter(c => { const d=pd(c.lc); return !d||ds(d)<THRESHOLD; }).sort((a,b)=>new Date(b.lc)-new Date(a.lc));
+    const inactive = list.filter(c => c.status === "Inactive").sort((a,b)=>new Date(b.lc)-new Date(a.lc));
+    return { cold, overdue, active, inactive };
   }, [contacts, query]);
 
   const columns = [
-    { key:"cold",    title:"Cold Outreach", icon:"✉️", contacts:cold    },
-    { key:"overdue", title:"Overdue",       icon:"⏰", contacts:overdue },
-    { key:"active",  title:"Active",        icon:"✅", contacts:active  },
+    { key:"active",   title:"Active",       icon:"✅", contacts:active   },
+    { key:"overdue",  title:"Overdue",      icon:"⏰", contacts:overdue  },
+    { key:"cold",     title:"Cold Outreach",icon:"✉️", contacts:cold     },
+    { key:"inactive", title:"Inactive",     icon:"💤", contacts:inactive },
   ];
 
   const colBadgeStyle = {
-    cold:    { background:"#E6F1FB", color:"#185FA5" },
-    overdue: { background:"#FAEEDA", color:"#854F0B" },
-    active:  { background:"#EAF3DE", color:"#3B6D11" },
+    active:   { background:"#EAF3DE", color:"#3B6D11" },
+    overdue:  { background:"#FAEEDA", color:"#854F0B" },
+    cold:     { background:"#E6F1FB", color:"#185FA5" },
+    inactive: { background:"#F0F0EE", color:"#777"    },
   };
 
   if (!unlocked) return <PasswordGate onUnlock={() => setUnlocked(true)} />;
@@ -648,6 +704,8 @@ export default function NetworkingDashboard({ onNewport }) {
 
   return (
     <div style={{ fontFamily:"Georgia,serif", background:"#fafaf8", minHeight:"100vh", paddingBottom:"3rem" }}>
+
+      {/* Header */}
       <div style={{ background:"#fff", borderBottom:"0.5px solid #e8e8e4", padding:isMobile?"12px 16px":"16px 24px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:20 }}>
         <div style={{ marginRight:4 }}>
           <div style={{ fontSize:isMobile?16:19, fontWeight:700, letterSpacing:"-.02em", color:"#1a1a18" }}>Networking Dashboard</div>
@@ -671,6 +729,11 @@ export default function NetworkingDashboard({ onNewport }) {
           style={{ fontSize:13, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#555", cursor:"pointer" }}>
           {refreshing ? "⏳" : "🔄"}
         </button>
+        {onNewport && (
+          <button onClick={onNewport} style={{ fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#0a2342", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
+            ⚓ Newport Intel
+          </button>
+        )}
         <button onClick={() => setShowNew(true)} style={{ fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
           + New contact
         </button>
@@ -678,6 +741,7 @@ export default function NetworkingDashboard({ onNewport }) {
 
       {query && <div style={{ padding:isMobile?"0 12px 12px":"0 24px 12px", fontSize:12, color:"#999" }}>Showing {cold.length+overdue.length+active.length} of {contacts.length} contacts for "{query}"</div>}
 
+      {/* Columns */}
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))", gap:isMobile?12:20, padding:isMobile?"0 12px":"0 24px" }}>
         {columns.map(col => (
           <div key={col.key} style={{ minWidth:0 }}>
