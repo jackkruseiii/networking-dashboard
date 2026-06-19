@@ -198,6 +198,7 @@ function mapSheetRow(row) {
     lc:       String(row["Last Check-in Date"]   || "").trim(),
     nc:       String(row["Next Check-in Date"]   || "").trim(),
     notes:    String(row["Notes"]                || "").trim(),
+    notesDoc: String(row["Notes Doc"]            || "").trim(),
   };
 }
 
@@ -343,6 +344,7 @@ function ContactCard({ c, idx, type, onOpen, onContactedToday, sessionNotes, set
         <button onClick={() => onOpen(c, type)} style={{ fontSize:11, padding:"3px 9px", borderRadius:6, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>View profile</button>
         {c.linkedin && <a href={c.linkedin} target="_blank" rel="noreferrer" style={{ fontSize:11, padding:"3px 9px", borderRadius:6, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>LinkedIn</a>}
         {c.email    && <a href={`mailto:${c.email}`} style={{ fontSize:11, padding:"3px 9px", borderRadius:6, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>Email</a>}
+        {c.notesDoc && <a href={c.notesDoc} target="_blank" rel="noreferrer" style={{ fontSize:11, padding:"3px 9px", borderRadius:6, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>📄 Notes</a>}
         <button onClick={handleContactedToday} disabled={contacting || contacted}
           style={{ fontSize:11, padding:"3px 9px", borderRadius:6, border:"0.5px solid #ccc", background:contacted?"#EAF3DE":"transparent", color:contacted?"#3B6D11":"#555", cursor:"pointer" }}>
           {contacting ? "Saving…" : contacted ? "✓ Logged" : "✓ Contacted today"}
@@ -484,10 +486,11 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
         </div>
 
         {/* Links */}
-        {(c.linkedin || c.email) && !editing && (
+        {(c.linkedin || c.email || c.notesDoc) && !editing && (
           <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
             {c.linkedin && <a href={c.linkedin} target="_blank" rel="noreferrer" style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>LinkedIn ↗</a>}
             {c.email    && <a href={`mailto:${c.email}`} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>{c.email}</a>}
+            {c.notesDoc && <a href={c.notesDoc} target="_blank" rel="noreferrer" style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>📄 Open notes ↗</a>}
           </div>
         )}
 
@@ -507,6 +510,7 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
             <DetailField label="Email"         k="email"    type="email" form={form} setForm={setForm} editing={editing} />
             <DetailField label="Last check-in" k="lc"       type="date"  form={form} setForm={setForm} editing={editing} />
             <DetailField label="Next check-in" k="nc"       type="date"  form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Notes Doc URL" k="notesDoc" form={form} setForm={setForm} editing={editing} />
           </div>
         </div>
 
@@ -589,7 +593,7 @@ function ModalField({ label, k, type="text", placeholder="", form, set, errors }
 
 // ─── New contact modal ────────────────────────────────────────────────────
 function NewContactModal({ onClose, onAdd }) {
-  const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", ug:"", grad:"", lc:"", nc:"", notes:"" };
+  const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", ug:"", grad:"", lc:"", nc:"", notes:"", notesDoc:"" };
   const [form,        setForm]        = useState(empty);
   const [errors,      setErrors]      = useState({});
   const [syncing,     setSyncing]     = useState(false);
@@ -679,6 +683,7 @@ function NewContactModal({ onClose, onAdd }) {
           <ModalField label="Grad school"   k="grad"     placeholder="Harvard"     form={form} set={set} errors={errors} />
           <ModalField label="Last check-in" k="lc"       type="date"               form={form} set={set} errors={errors} />
           <ModalField label="Next check-in" k="nc"       type="date"               form={form} set={set} errors={errors} />
+          <ModalField label="Notes Doc URL"  k="notesDoc" type="url"   placeholder="https://docs.google.com/…" form={form} set={set} errors={errors} />
           <div style={{ gridColumn:"1/-1", display:"flex", flexDirection:"column" }}>
             <label style={modalLbl}>Notes</label>
             <textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="How you know them, talking points…" rows={3}
