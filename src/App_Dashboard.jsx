@@ -136,6 +136,49 @@ LINKEDIN MESSAGE RULES:
   return { subject: "", body };
 }
 
+// ─── LinkedIn profile text parser ─────────────────────────────────────────
+async function parseLinkedInProfile(pastedText) {
+  const systemPrompt = `You extract structured contact information from raw LinkedIn profile text that a user copy-pasted from a browser.
+
+Return ONLY a JSON object with these exact keys (use empty string "" if not found):
+{
+  "fn": "first name",
+  "ln": "last name",
+  "company": "current company",
+  "industry": "best-guess industry based on role/company",
+  "city": "city",
+  "state": "state or region",
+  "ug": "undergraduate school if mentioned",
+  "grad": "graduate school if mentioned",
+  "notes": "1-2 sentence summary of their role/background, useful as a quick reference note"
+}
+
+Rules:
+- Return ONLY the JSON object, no markdown formatting, no backticks, no preamble
+- If you can't confidently determine a field, use an empty string
+- For city/state, use their listed location
+- Keep "notes" concise — just enough to remember who they are`;
+
+  const userPrompt = "Extract contact info from this LinkedIn profile text:\n\n" + pastedText;
+
+  const response = await fetch("/api/draft", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ systemPrompt, userPrompt }),
+  });
+
+  const data = await response.json();
+  const text = (data.text || "").trim();
+
+  try {
+    const cleaned = text.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+    return JSON.parse(cleaned);
+  } catch (err) {
+    console.error("Failed to parse LinkedIn extraction result:", err, text);
+    return null;
+  }
+}
+
 // ─── Sheet row mapper ─────────────────────────────────────────────────────
 function mapSheetRow(row) {
   return {
@@ -547,11 +590,40 @@ function ModalField({ label, k, type="text", placeholder="", form, set, errors }
 // ─── New contact modal ────────────────────────────────────────────────────
 function NewContactModal({ onClose, onAdd }) {
   const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", ug:"", grad:"", lc:"", nc:"", notes:"" };
-  const [form,    setForm]    = useState(empty);
-  const [errors,  setErrors]  = useState({});
-  const [syncing, setSyncing] = useState(false);
+  const [form,        setForm]        = useState(empty);
+  const [errors,      setErrors]      = useState({});
+  const [syncing,     setSyncing]     = useState(false);
+  const [liText,      setLiText]      = useState("");
+  const [parsing,     setParsing]     = useState(false);
+  const [parsed,      setParsed]      = useState(false);
 
   function set(k, v) { setForm(p => ({ ...p, [k]: v })); }
+
+  async function handleParseLinkedIn() {
+    if (!liText.trim()) return;
+    setParsing(true);
+    setParsed(false);
+    const result = await parseLinkedInProfile(liText);
+    setParsing(false);
+    if (result) {
+      setForm(p => ({
+        ...p,
+        fn:       result.fn       || p.fn,
+        ln:       result.ln       || p.ln,
+        company:  result.company  || p.company,
+        industry: result.industry || p.industry,
+        city:     result.city     || p.city,
+        state:    result.state    || p.state,
+        ug:       result.ug       || p.ug,
+        grad:     result.grad     || p.grad,
+        notes:    result.notes    || p.notes,
+      }));
+      setParsed(true);
+      setTimeout(() => setParsed(false), 3000);
+    } else {
+      alert("Couldn't parse that text — try pasting more of the profile, or fill in the fields manually below.");
+    }
+  }
 
   async function submit() {
     const errs = {};
@@ -573,6 +645,19 @@ function NewContactModal({ onClose, onAdd }) {
           <div><div style={{ fontSize:19, fontWeight:600, marginBottom:3 }}>New contact</div><div style={{ fontSize:13, color:"#777" }}>Add someone to your network</div></div>
           <button onClick={onClose} style={{ marginLeft:"auto", background:"transparent", border:"0.5px solid #ccc", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:"#666" }}>✕ Close</button>
         </div>
+
+        <div style={{ background:"#f0f6fb", border:"0.5px solid #cfe2f3", borderRadius:10, padding:"14px 16px", marginBottom:20 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:"#0a66c2", marginBottom:6 }}>💼 Paste from LinkedIn (optional)</div>
+          <div style={{ fontSize:11, color:"#666", marginBottom:8, lineHeight:1.5 }}>Open their LinkedIn profile, select all (Ctrl/Cmd+A), copy, and paste the text below. Claude will fill in the fields automatically.</div>
+          <textarea value={liText} onChange={e => setLiText(e.target.value)} placeholder="Paste LinkedIn profile text here…" rows={4}
+            style={{ width:"100%", fontSize:12, padding:"8px 10px", border:"0.5px solid #cfe2f3", borderRadius:8, background:"#fff", color:"#222", fontFamily:"inherit", outline:"none", resize:"vertical", boxSizing:"border-box", marginBottom:8 }} />
+          <button onClick={handleParseLinkedIn} disabled={parsing || !liText.trim()}
+            style={{ fontSize:12, fontWeight:500, padding:"6px 14px", borderRadius:7, border:"none", background:"#0a66c2", color:"#fff", cursor:liText.trim()?"pointer":"default", opacity:liText.trim()?1:0.5 }}>
+            {parsing ? "✍️ Parsing…" : "Fill fields from LinkedIn"}
+          </button>
+          {parsed && <span style={{ fontSize:11, color:"#3B6D11", marginLeft:8 }}>✓ Fields filled in below — review and edit as needed</span>}
+        </div>
+
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
           <ModalField label="First name *" k="fn"       placeholder="Jane"        form={form} set={set} errors={errors} />
           <ModalField label="Last name *"  k="ln"       placeholder="Smith"       form={form} set={set} errors={errors} />
