@@ -199,6 +199,7 @@ function mapSheetRow(row) {
     nc:       String(row["Next Check-in Date"]   || "").trim(),
     notes:    String(row["Notes"]                || "").trim(),
     notesDoc: String(row["Notes Doc"]            || "").trim(),
+    region:   String(row["Target Region"]        || "").trim(),
   };
 }
 
@@ -337,6 +338,7 @@ function ContactCard({ c, idx, type, onOpen, onContactedToday, sessionNotes, set
           {c.industry && <span style={{ fontSize:10, padding:"2px 7px", borderRadius:5, border:"0.5px solid #e0e0de", color:"#666", background:"#f9f9f7" }}>{c.industry}</span>}
           {c.company  && <span style={{ fontSize:10, padding:"2px 7px", borderRadius:5, border:"0.5px solid #e0e0de", color:"#666", background:"#f9f9f7" }}>{c.company}</span>}
           {loc        && <span style={{ fontSize:10, padding:"2px 7px", borderRadius:5, border:"0.5px solid #e0e0de", color:"#666", background:"#f9f9f7" }}>📍 {loc}</span>}
+          {c.region   && <span style={{ fontSize:10, padding:"2px 7px", borderRadius:5, border:"0.5px solid #cfe2f3", color:"#0a66c2", background:"#f0f6fb", fontWeight:600 }}>🎯 {c.region}</span>}
         </div>
       )}
 
@@ -511,6 +513,7 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
             <DetailField label="Last check-in" k="lc"       type="date"  form={form} setForm={setForm} editing={editing} />
             <DetailField label="Next check-in" k="nc"       type="date"  form={form} setForm={setForm} editing={editing} />
             <DetailField label="Notes Doc URL" k="notesDoc" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Target Region" k="region" form={form} setForm={setForm} editing={editing} />
           </div>
         </div>
 
@@ -593,7 +596,7 @@ function ModalField({ label, k, type="text", placeholder="", form, set, errors }
 
 // ─── New contact modal ────────────────────────────────────────────────────
 function NewContactModal({ onClose, onAdd }) {
-  const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", ug:"", grad:"", lc:"", nc:"", notes:"", notesDoc:"" };
+  const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", ug:"", grad:"", lc:"", nc:"", notes:"", notesDoc:"", region:"" };
   const [form,        setForm]        = useState(empty);
   const [errors,      setErrors]      = useState({});
   const [syncing,     setSyncing]     = useState(false);
@@ -684,6 +687,7 @@ function NewContactModal({ onClose, onAdd }) {
           <ModalField label="Last check-in" k="lc"       type="date"               form={form} set={set} errors={errors} />
           <ModalField label="Next check-in" k="nc"       type="date"               form={form} set={set} errors={errors} />
           <ModalField label="Notes Doc URL"  k="notesDoc" type="url"   placeholder="https://docs.google.com/…" form={form} set={set} errors={errors} />
+          <ModalField label="Target Region"  k="region"   placeholder="DFW, Newport…" form={form} set={set} errors={errors} />
           <div style={{ gridColumn:"1/-1", display:"flex", flexDirection:"column" }}>
             <label style={modalLbl}>Notes</label>
             <textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="How you know them, talking points…" rows={3}
@@ -714,6 +718,7 @@ export default function NetworkingDashboard({ onNewport }) {
   const [selectedType, setSelectedType] = useState(null);
   const [showNew,      setShowNew]      = useState(false);
   const [query,        setQuery]        = useState("");
+  const [regionFilter, setRegionFilter] = useState("");
   const [sessionNotes, setSessionNotes] = useState({});
 
   function fetchData(isRefresh = false) {
@@ -753,16 +758,22 @@ export default function NetworkingDashboard({ onNewport }) {
     });
   }, [unlocked, contacts.length]);
 
+  const regionOptions = useMemo(() => {
+    const set = new Set(contacts.map(c => c.region).filter(Boolean));
+    return Array.from(set).sort();
+  }, [contacts]);
+
   const { cold, overdue, active, inactive } = useMemo(() => {
-    const q    = query.toLowerCase().trim();
-    const list = q ? contacts.filter(c => [c.fn,c.ln,c.company,c.industry,c.rel,c.city,c.state,c.notes].join(" ").toLowerCase().includes(q)) : contacts;
+    const q     = query.toLowerCase().trim();
+    let list    = q ? contacts.filter(c => [c.fn,c.ln,c.company,c.industry,c.rel,c.city,c.state,c.notes].join(" ").toLowerCase().includes(q)) : contacts;
+    if (regionFilter) list = list.filter(c => c.region === regionFilter);
     const cold     = list.filter(c => c.status === "Never Contacted");
     const allAct   = list.filter(c => c.status === "Active");
     const overdue  = allAct.filter(c => { const d=pd(c.lc); return d && ds(d)>=THRESHOLD; }).sort((a,b)=>new Date(a.lc)-new Date(b.lc));
     const active   = allAct.filter(c => { const d=pd(c.lc); return !d||ds(d)<THRESHOLD; }).sort((a,b)=>new Date(b.lc)-new Date(a.lc));
     const inactive = list.filter(c => c.status === "Inactive").sort((a,b)=>new Date(b.lc)-new Date(a.lc));
     return { cold, overdue, active, inactive };
-  }, [contacts, query]);
+  }, [contacts, query, regionFilter]);
 
   const columns = [
     { key:"active",   title:"Active",       icon:"✅", contacts:active   },
@@ -808,6 +819,13 @@ export default function NetworkingDashboard({ onNewport }) {
             onFocus={e => e.target.style.borderColor="#999"} onBlur={e => e.target.style.borderColor="#e0e0de"} />
           {query && <button onClick={() => setQuery("")} style={{ position:"absolute", right:8, top:"50%", transform:"translateY(-50%)", background:"transparent", border:"none", cursor:"pointer", fontSize:14, color:"#aaa", padding:0, lineHeight:1 }}>✕</button>}
         </div>
+        {regionOptions.length > 0 && (
+          <select value={regionFilter} onChange={e => setRegionFilter(e.target.value)}
+            style={{ fontSize:13, padding:"7px 10px", borderRadius:8, border:regionFilter?"1px solid #0a66c2":"0.5px solid #e0e0de", background:regionFilter?"#f0f6fb":"#f9f9f7", color:regionFilter?"#0a66c2":"#555", fontFamily:"inherit", outline:"none", cursor:"pointer", fontWeight:regionFilter?600:400 }}>
+            <option value="">🎯 All regions</option>
+            {regionOptions.map(r => <option key={r} value={r}>🎯 {r} only</option>)}
+          </select>
+        )}
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
           {columns.map(col => (
             <div key={col.key} style={{ fontSize:12, padding:"4px 11px", borderRadius:20, fontWeight:600, ...colBadgeStyle[col.key] }}>
@@ -829,7 +847,11 @@ export default function NetworkingDashboard({ onNewport }) {
         </button>
       </div>
 
-      {query && <div style={{ padding:isMobile?"0 12px 12px":"0 24px 12px", fontSize:12, color:"#999" }}>Showing {cold.length+overdue.length+active.length} of {contacts.length} contacts for "{query}"</div>}
+      {(query || regionFilter) && <div style={{ padding:isMobile?"0 12px 12px":"0 24px 12px", fontSize:12, color:"#999" }}>
+        Showing {cold.length+overdue.length+active.length+inactive.length} of {contacts.length} contacts
+        {query && ` for "${query}"`}
+        {regionFilter && <span> · 🎯 <strong style={{color:"#0a66c2"}}>{regionFilter}</strong> region</span>}
+      </div>}
 
       {/* Columns */}
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))", gap:isMobile?12:20, padding:isMobile?"0 12px":"0 24px" }}>
