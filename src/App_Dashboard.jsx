@@ -200,6 +200,10 @@ function mapSheetRow(row) {
     notes:    String(row["Notes"]                || "").trim(),
     notesDoc: String(row["Notes Doc"]            || "").trim(),
     region:   String(row["Target Region"]        || "").trim(),
+    // ── NEW: personal friend flag ────────────────────────────────────────
+    // Stored in the "Column 1" sheet column (the existing spare column).
+    // Value is "true" (string) when set, anything else = false.
+    friend:   String(row["Column 1"]             || "").trim().toLowerCase() === "true",
   };
 }
 
@@ -301,6 +305,10 @@ function ContactCard({ c, idx, type, onOpen, onContactedToday, sessionNotes, set
   const [contacting, setContacting] = useState(false);
   const note = sessionNotes[key] || "";
 
+  // ── NEW: friend card background ──────────────────────────────────────
+  const cardBg = c.friend ? "#eaf4ff" : "#fff";
+  const cardBorder = c.friend ? "0.5px solid #b3d4f5" : "0.5px solid #e0e0de";
+
   async function handleSaveNote() {
     setShowSave(false); setSyncing(true);
     await postToSheet("note", { id:c.id, firstName:c.fn, lastName:c.ln, note:sessionNotes[key]||"", timestamp:new Date().toISOString() });
@@ -319,14 +327,18 @@ function ContactCard({ c, idx, type, onOpen, onContactedToday, sessionNotes, set
   }
 
   return (
-    <div style={{ background:"#fff", border:"0.5px solid #e0e0de", borderRadius:12, padding:"14px 16px", marginBottom:10 }}
+    <div style={{ background:cardBg, border:cardBorder, borderRadius:12, padding:"14px 16px", marginBottom:10 }}
       onMouseEnter={e => e.currentTarget.style.borderColor="#bbb"}
-      onMouseLeave={e => e.currentTarget.style.borderColor="#e0e0de"}>
+      onMouseLeave={e => e.currentTarget.style.borderColor=cardBorder.replace("0.5px solid ","")}>
 
       <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:9, cursor:"pointer" }} onClick={() => onOpen(c, type)}>
         <div style={{ width:34, height:34, minWidth:34, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:600, background:av.bg, color:av.color }}>{ini(c)}</div>
         <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontSize:14, fontWeight:600, lineHeight:1.2, marginBottom:2 }}>{c.fn} {c.ln}</div>
+          <div style={{ fontSize:14, fontWeight:600, lineHeight:1.2, marginBottom:2 }}>
+            {c.fn} {c.ln}
+            {/* ── NEW: friend badge ── */}
+            {c.friend && <span style={{ marginLeft:6, fontSize:11, padding:"1px 7px", borderRadius:10, background:"#dbeeff", color:"#1565a8", border:"0.5px solid #b3d4f5", fontWeight:600 }}>🤝 Personal Friend</span>}
+          </div>
           <div style={{ fontSize:11, color:"#777" }}>{c.rel || (c.company || "—")}</div>
         </div>
       </div>
@@ -410,7 +422,7 @@ function InfoItem({ label, value }) {
 }
 
 // ─── Detail / Edit panel ──────────────────────────────────────────────────
-function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, setSessionNotes }) {
+function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessionNotes, setSessionNotes }) {
   const [editing,      setEditing]      = useState(false);
   const [form,         setForm]         = useState({ ...c });
   const [saving,       setSaving]       = useState(false);
@@ -418,6 +430,9 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
   const [noteSyncing,  setNoteSyncing]  = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
   const [draft,        setDraft]        = useState(null);
+  // ── NEW: archive confirm state ────────────────────────────────────────
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting,      setDeleting]      = useState(false);
 
   if (!c) return null;
   const av  = AV[type] || AV.active;
@@ -439,7 +454,9 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
 
   async function handleSaveEdit() {
     setSaving(true);
-    await updateContact(form);
+    // ── NEW: persist friend flag via Column 1 field ───────────────────
+    const payload = { ...form, col1: form.friend ? "true" : "" };
+    await updateContact(payload);
     setSaving(false);
     setEditing(false);
     onSaved(form);
@@ -461,6 +478,22 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
     setDraftLoading(false);
   }
 
+  // ── NEW: archive (soft delete) ────────────────────────────────────────
+  async function handleDelete() {
+    setDeleting(true);
+    const updated = { ...c, status: "Inactive" };
+    await updateContact(updated);
+    await postToSheet("note", {
+      id: c.id,
+      firstName: c.fn,
+      lastName: c.ln,
+      note: "Contact archived (moved to Inactive).",
+      timestamp: new Date().toISOString(),
+    });
+    setDeleting(false);
+    onDeleted(updated);
+  }
+
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:window.innerWidth<640?"flex-end":"center", justifyContent:"center", padding:window.innerWidth<640?0:16 }}>
       <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:window.innerWidth<640?"16px 16px 0 0":16, border:"0.5px solid #e0e0de", width:window.innerWidth<640?"100%":"min(580px,100%)", maxHeight:window.innerWidth<640?"92vh":"88vh", overflowY:"auto", padding:window.innerWidth<640?"20px 16px":24 }}>
@@ -469,11 +502,15 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
         <div style={{ display:"flex", alignItems:"flex-start", gap:14, marginBottom:18 }}>
           <div style={{ width:52, height:52, minWidth:52, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:600, background:av.bg, color:av.color }}>{ini(editing?form:c)}</div>
           <div style={{ flex:1 }}>
-            <div style={{ fontSize:20, fontWeight:600, marginBottom:3 }}>{editing ? `${form.fn} ${form.ln}` : `${c.fn} ${c.ln}`}</div>
+            <div style={{ fontSize:20, fontWeight:600, marginBottom:3 }}>
+              {editing ? `${form.fn} ${form.ln}` : `${c.fn} ${c.ln}`}
+              {/* ── NEW: friend badge in header ── */}
+              {(editing ? form.friend : c.friend) && <span style={{ marginLeft:8, fontSize:12, padding:"2px 9px", borderRadius:10, background:"#dbeeff", color:"#1565a8", border:"0.5px solid #b3d4f5", fontWeight:600 }}>🤝 Personal Friend</span>}
+            </div>
             <div style={{ fontSize:13, color:"#777" }}>{c.rel || (c.company || "—")}</div>
           </div>
-          <div style={{ display:"flex", gap:8, flexShrink:0 }}>
-            {!editing && <button onClick={() => setEditing(true)} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>✏️ Edit</button>}
+          <div style={{ display:"flex", gap:8, flexShrink:0, flexWrap:"wrap", justifyContent:"flex-end" }}>
+            {!editing && <button onClick={() => { setEditing(true); setConfirmDelete(false); }} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>✏️ Edit</button>}
             {editing && <>
               <button onClick={handleSaveEdit} disabled={saving} style={{ fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:7, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>{saving?"Saving…":"Save"}</button>
               <button onClick={() => { setEditing(false); setForm({ ...c }); }} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
@@ -513,9 +550,54 @@ function DetailPanel({ c, type, onClose, onSaved, interactions, sessionNotes, se
             <DetailField label="Last check-in" k="lc"       type="date"  form={form} setForm={setForm} editing={editing} />
             <DetailField label="Next check-in" k="nc"       type="date"  form={form} setForm={setForm} editing={editing} />
             <DetailField label="Notes Doc URL" k="notesDoc" form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Target Region" k="region" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Target Region" k="region"   form={form} setForm={setForm} editing={editing} />
           </div>
+
+          {/* ── NEW: Personal Friend toggle (edit mode only) ── */}
+          {editing && (
+            <div style={{ marginTop:10 }}>
+              <button
+                onClick={() => setForm(p => ({ ...p, friend: !p.friend }))}
+                style={{
+                  display:"inline-flex", alignItems:"center", gap:8,
+                  padding:"8px 16px", borderRadius:20,
+                  border: form.friend ? "2px solid #1565a8" : "1.5px solid #ccc",
+                  background: form.friend ? "#dbeeff" : "#fff",
+                  color: form.friend ? "#1565a8" : "#888",
+                  fontSize:13, fontWeight:600, cursor:"pointer",
+                }}>
+                <span style={{ fontSize:16 }}>🤝</span>
+                {form.friend ? "Personal Friend" : "Mark as Personal Friend"}
+              </button>
+              <div style={{ fontSize:11, color:"#aaa", marginTop:4 }}>Highlights the card in light blue across the dashboard</div>
+            </div>
+          )}
         </div>
+
+        {/* ── NEW: Archive / soft-delete section ── */}
+        {!editing && (
+          <div style={{ marginBottom:18, padding:"12px 14px", background:"#fafaf8", borderRadius:10, border:"0.5px solid #eee" }}>
+            <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>Archive contact</div>
+            {!confirmDelete ? (
+              <button onClick={() => setConfirmDelete(true)}
+                style={{ fontSize:12, padding:"5px 14px", borderRadius:7, border:"0.5px solid #f0c8c3", background:"#fdf0ee", color:"#c0392b", cursor:"pointer" }}>
+                🗄 Archive this contact
+              </button>
+            ) : (
+              <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                <span style={{ fontSize:12, color:"#c0392b", fontWeight:500 }}>Move {c.fn} to Inactive? Their history is preserved.</span>
+                <button onClick={handleDelete} disabled={deleting}
+                  style={{ fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:7, border:"none", background:"#c0392b", color:"#fff", cursor:"pointer" }}>
+                  {deleting ? "Archiving…" : "Yes, archive"}
+                </button>
+                <button onClick={() => setConfirmDelete(false)}
+                  style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Log a note */}
         <div style={{ marginBottom:18 }}>
@@ -596,7 +678,7 @@ function ModalField({ label, k, type="text", placeholder="", form, set, errors }
 
 // ─── New contact modal ────────────────────────────────────────────────────
 function NewContactModal({ onClose, onAdd }) {
-  const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", ug:"", grad:"", lc:"", nc:"", notes:"", notesDoc:"", region:"" };
+  const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", ug:"", grad:"", lc:"", nc:"", notes:"", notesDoc:"", region:"", friend:false };
   const [form,        setForm]        = useState(empty);
   const [errors,      setErrors]      = useState({});
   const [syncing,     setSyncing]     = useState(false);
@@ -693,7 +775,25 @@ function NewContactModal({ onClose, onAdd }) {
             <textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="How you know them, talking points…" rows={3}
               style={{ ...modalInp, resize:"vertical", minHeight:64 }} />
           </div>
+          {/* ── NEW: Personal Friend toggle in new contact modal ── */}
+          <div style={{ gridColumn:"1/-1" }}>
+            <button
+              type="button"
+              onClick={() => set("friend", !form.friend)}
+              style={{
+                display:"inline-flex", alignItems:"center", gap:8,
+                padding:"8px 16px", borderRadius:20,
+                border: form.friend ? "2px solid #1565a8" : "1.5px solid #ccc",
+                background: form.friend ? "#dbeeff" : "#fff",
+                color: form.friend ? "#1565a8" : "#888",
+                fontSize:13, fontWeight:600, cursor:"pointer",
+              }}>
+              <span style={{ fontSize:16 }}>🤝</span>
+              {form.friend ? "Personal Friend" : "Mark as Personal Friend"}
+            </button>
+          </div>
         </div>
+
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end", paddingTop:12, borderTop:"0.5px solid #eee" }}>
           <button onClick={onClose} style={{ fontSize:13, padding:"7px 16px", borderRadius:8, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
           <button onClick={submit} disabled={syncing} style={{ fontSize:13, fontWeight:500, padding:"7px 18px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>{syncing?"Saving…":"Add contact"}</button>
@@ -743,7 +843,6 @@ export default function NetworkingDashboard({ onNewport }) {
     fetchData();
   }, [unlocked]);
 
-  // Auto-move contacts to Inactive after 180 days — runs once on load
   useEffect(() => {
     if (!unlocked || contacts.length === 0) return;
     const toDeactivate = contacts.filter(c => {
@@ -879,9 +978,11 @@ export default function NetworkingDashboard({ onNewport }) {
       </div>
 
       {selected && (
-        <DetailPanel c={selected} type={selectedType} onClose={() => setSelected(null)}
+        <DetailPanel c={selected} type={selectedType} onClose={() => { setSelected(null); setSelectedType(null); }}
           interactions={interactions}
           onSaved={updated => { setContacts(prev => prev.map(c => c.id === updated.id ? updated : c)); setSelected(updated); }}
+          // ── NEW: onDeleted moves contact to Inactive and closes panel ──
+          onDeleted={updated => { setContacts(prev => prev.map(c => c.id === updated.id ? updated : c)); setSelected(null); setSelectedType(null); }}
           sessionNotes={sessionNotes} setSessionNotes={setSessionNotes} />
       )}
 
