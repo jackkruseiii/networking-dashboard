@@ -294,20 +294,29 @@ function LastContactBadge({ c, type }) {
 }
 
 // ─── Contact card ─────────────────────────────────────────────────────────
-function ContactCard({ c, idx, type, onOpen, onContactedToday, sessionNotes, setSessionNotes }) {
+function ContactCard({ c, idx, type, onOpen, onContactedToday, onFriendToggle, sessionNotes, setSessionNotes }) {
   const key  = `${type}-${c.id||c.fn}-${c.ln}-${idx}`;
   const av   = AV[type];
   const loc  = [c.city, c.state].filter(Boolean).join(", ");
-  const [showSave,   setShowSave]   = useState(false);
-  const [saved,      setSaved]      = useState(false);
-  const [syncing,    setSyncing]    = useState(false);
-  const [contacted,  setContacted]  = useState(false);
-  const [contacting, setContacting] = useState(false);
+  const [showSave,       setShowSave]       = useState(false);
+  const [saved,          setSaved]          = useState(false);
+  const [syncing,        setSyncing]        = useState(false);
+  const [contacted,      setContacted]      = useState(false);
+  const [contacting,     setContacting]     = useState(false);
+  const [togglingFriend, setTogglingFriend] = useState(false);
   const note = sessionNotes[key] || "";
 
-  // ── NEW: friend card background ──────────────────────────────────────
-  const cardBg = c.friend ? "#eaf4ff" : "#fff";
+  const cardBg     = c.friend ? "#eaf4ff" : "#fff";
   const cardBorder = c.friend ? "0.5px solid #b3d4f5" : "0.5px solid #e0e0de";
+
+  async function handleFriendToggle(e) {
+    e.stopPropagation();
+    setTogglingFriend(true);
+    const updated = { ...c, friend: !c.friend };
+    await updateContact({ ...updated, col1: updated.friend ? "true" : "" });
+    setTogglingFriend(false);
+    onFriendToggle(updated);
+  }
 
   async function handleSaveNote() {
     setShowSave(false); setSyncing(true);
@@ -334,13 +343,14 @@ function ContactCard({ c, idx, type, onOpen, onContactedToday, sessionNotes, set
       <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:9, cursor:"pointer" }} onClick={() => onOpen(c, type)}>
         <div style={{ width:34, height:34, minWidth:34, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:600, background:av.bg, color:av.color }}>{ini(c)}</div>
         <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontSize:14, fontWeight:600, lineHeight:1.2, marginBottom:2 }}>
-            {c.fn} {c.ln}
-            {/* ── NEW: friend badge ── */}
-            {c.friend && <span style={{ marginLeft:6, fontSize:11, padding:"1px 7px", borderRadius:10, background:"#dbeeff", color:"#1565a8", border:"0.5px solid #b3d4f5", fontWeight:600 }}>🤝 Personal Friend</span>}
-          </div>
+          <div style={{ fontSize:14, fontWeight:600, lineHeight:1.2, marginBottom:2 }}>{c.fn} {c.ln}</div>
           <div style={{ fontSize:11, color:"#777" }}>{c.rel || (c.company || "—")}</div>
         </div>
+        {/* 🤝 friend toggle — always visible, one click, no edit mode needed */}
+        <button onClick={handleFriendToggle} disabled={togglingFriend} title={c.friend ? "Remove personal friend" : "Mark as personal friend"}
+          style={{ background:c.friend?"#dbeeff":"transparent", border:c.friend?"0.5px solid #b3d4f5":"0.5px solid #ddd", borderRadius:20, padding:"2px 8px", fontSize:12, cursor:"pointer", color:c.friend?"#1565a8":"#bbb", flexShrink:0, transition:"all .15s" }}>
+          🤝
+        </button>
       </div>
 
       <LastContactBadge c={c} type={type} />
@@ -430,9 +440,10 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
   const [noteSyncing,  setNoteSyncing]  = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
   const [draft,        setDraft]        = useState(null);
-  // ── NEW: archive confirm state ────────────────────────────────────────
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting,      setDeleting]      = useState(false);
+  const [confirmArchive,     setConfirmArchive]     = useState(false);
+  const [archiving,          setArchiving]          = useState(false);
+  const [confirmHardDelete,  setConfirmHardDelete]  = useState(false);
+  const [hardDeleting,       setHardDeleting]       = useState(false);
 
   if (!c) return null;
   const av  = AV[type] || AV.active;
@@ -478,20 +489,32 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
     setDraftLoading(false);
   }
 
-  // ── NEW: archive (soft delete) ────────────────────────────────────────
-  async function handleDelete() {
-    setDeleting(true);
+  // soft archive → moves to Inactive, history preserved
+  async function handleArchive() {
+    setArchiving(true);
     const updated = { ...c, status: "Inactive" };
     await updateContact(updated);
     await postToSheet("note", {
-      id: c.id,
-      firstName: c.fn,
-      lastName: c.ln,
+      id: c.id, firstName: c.fn, lastName: c.ln,
       note: "Contact archived (moved to Inactive).",
       timestamp: new Date().toISOString(),
     });
-    setDeleting(false);
+    setArchiving(false);
     onDeleted(updated);
+  }
+
+  // hard delete → calls /api/delete endpoint, removes from sheet entirely
+  async function handleHardDelete() {
+    setHardDeleting(true);
+    try {
+      await fetch("/api/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: c.id }),
+      });
+    } catch (err) { console.error("Delete failed:", err); }
+    setHardDeleting(false);
+    onDeleted(null); // null signals full removal
   }
 
   return (
@@ -574,26 +597,46 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
           )}
         </div>
 
-        {/* ── NEW: Archive / soft-delete section ── */}
+        {/* Archive + hard delete section */}
         {!editing && (
           <div style={{ marginBottom:18, padding:"12px 14px", background:"#fafaf8", borderRadius:10, border:"0.5px solid #eee" }}>
-            <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>Archive contact</div>
-            {!confirmDelete ? (
-              <button onClick={() => setConfirmDelete(true)}
-                style={{ fontSize:12, padding:"5px 14px", borderRadius:7, border:"0.5px solid #f0c8c3", background:"#fdf0ee", color:"#c0392b", cursor:"pointer" }}>
-                🗄 Archive this contact
-              </button>
-            ) : (
+            <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:10 }}>Remove contact</div>
+
+            {/* Archive row */}
+            {!confirmArchive && !confirmHardDelete && (
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                <button onClick={() => setConfirmArchive(true)}
+                  style={{ fontSize:12, padding:"5px 14px", borderRadius:7, border:"0.5px solid #f0c8c3", background:"#fdf0ee", color:"#c0392b", cursor:"pointer" }}>
+                  🗄 Archive (move to Inactive)
+                </button>
+                <button onClick={() => setConfirmHardDelete(true)}
+                  style={{ fontSize:12, padding:"5px 14px", borderRadius:7, border:"0.5px solid #f0c8c3", background:"#fdf0ee", color:"#c0392b", cursor:"pointer" }}>
+                  🗑 Delete permanently
+                </button>
+              </div>
+            )}
+
+            {confirmArchive && (
               <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-                <span style={{ fontSize:12, color:"#c0392b", fontWeight:500 }}>Move {c.fn} to Inactive? Their history is preserved.</span>
-                <button onClick={handleDelete} disabled={deleting}
+                <span style={{ fontSize:12, color:"#c0392b", fontWeight:500 }}>Move {c.fn} to Inactive? History is preserved.</span>
+                <button onClick={handleArchive} disabled={archiving}
                   style={{ fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:7, border:"none", background:"#c0392b", color:"#fff", cursor:"pointer" }}>
-                  {deleting ? "Archiving…" : "Yes, archive"}
+                  {archiving ? "Archiving…" : "Yes, archive"}
                 </button>
-                <button onClick={() => setConfirmDelete(false)}
-                  style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>
-                  Cancel
+                <button onClick={() => setConfirmArchive(false)}
+                  style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
+              </div>
+            )}
+
+            {confirmHardDelete && (
+              <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                <span style={{ fontSize:12, color:"#c0392b", fontWeight:500 }}>Permanently delete {c.fn} {c.ln}? This cannot be undone.</span>
+                <button onClick={handleHardDelete} disabled={hardDeleting}
+                  style={{ fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:7, border:"none", background:"#7b0000", color:"#fff", cursor:"pointer" }}>
+                  {hardDeleting ? "Deleting…" : "Yes, delete forever"}
                 </button>
+                <button onClick={() => setConfirmHardDelete(false)}
+                  style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
               </div>
             )}
           </div>
@@ -817,9 +860,10 @@ export default function NetworkingDashboard({ onNewport }) {
   const [selected,     setSelected]     = useState(null);
   const [selectedType, setSelectedType] = useState(null);
   const [showNew,      setShowNew]      = useState(false);
-  const [query,        setQuery]        = useState("");
-  const [regionFilter, setRegionFilter] = useState("");
-  const [sessionNotes, setSessionNotes] = useState({});
+  const [query,          setQuery]          = useState("");
+  const [regionFilter,   setRegionFilter]   = useState("");
+  const [activeColFilter, setActiveColFilter] = useState(""); // "", "active", "overdue", "cold", "inactive"
+  const [sessionNotes,   setSessionNotes]   = useState({});
 
   function fetchData(isRefresh = false) {
     if (isRefresh) setRefreshing(true);
@@ -926,11 +970,26 @@ export default function NetworkingDashboard({ onNewport }) {
           </select>
         )}
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          {columns.map(col => (
-            <div key={col.key} style={{ fontSize:12, padding:"4px 11px", borderRadius:20, fontWeight:600, ...colBadgeStyle[col.key] }}>
-              {col.contacts.length} {col.title}
-            </div>
-          ))}
+          {columns.map(col => {
+            const isActive = activeColFilter === col.key;
+            return (
+              <button key={col.key}
+                onClick={() => setActiveColFilter(isActive ? "" : col.key)}
+                style={{ fontSize:12, padding:"4px 11px", borderRadius:20, fontWeight:600, cursor:"pointer", border:"none",
+                  outline: isActive ? "2px solid currentColor" : "none",
+                  outlineOffset:2,
+                  opacity: activeColFilter && !isActive ? 0.45 : 1,
+                  ...colBadgeStyle[col.key] }}>
+                {col.contacts.length} {col.title}
+              </button>
+            );
+          })}
+          {activeColFilter && (
+            <button onClick={() => setActiveColFilter("")}
+              style={{ fontSize:12, padding:"4px 11px", borderRadius:20, fontWeight:400, cursor:"pointer", border:"0.5px solid #ccc", background:"transparent", color:"#888" }}>
+              ✕ Show all
+            </button>
+          )}
         </div>
         <button onClick={() => fetchData(true)} disabled={refreshing} title="Reload contacts from sheet"
           style={{ fontSize:13, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#555", cursor:"pointer" }}>
@@ -946,13 +1005,41 @@ export default function NetworkingDashboard({ onNewport }) {
         </button>
       </div>
 
-      {(query || regionFilter) && <div style={{ padding:isMobile?"0 12px 12px":"0 24px 12px", fontSize:12, color:"#999" }}>
-        Showing {cold.length+overdue.length+active.length+inactive.length} of {contacts.length} contacts
-        {query && ` for "${query}"`}
-        {regionFilter && <span> · 🎯 <strong style={{color:"#0a66c2"}}>{regionFilter}</strong> region</span>}
-      </div>}
+      {(query || regionFilter || activeColFilter) && (
+        <div style={{ padding:isMobile?"0 12px 12px":"0 24px 12px", fontSize:12, color:"#999" }}>
+          Showing {cold.length+overdue.length+active.length+inactive.length} of {contacts.length} contacts
+          {query && ` for "${query}"`}
+          {regionFilter && <span> · 🎯 <strong style={{color:"#0a66c2"}}>{regionFilter}</strong></span>}
+          {activeColFilter && <span> · filtered to <strong style={{color:COL[activeColFilter]}}>{columns.find(c=>c.key===activeColFilter)?.title}</strong></span>}
+        </div>
+      )}
 
-      {/* Columns */}
+      {/* ── Filtered single-column view: 3-across grid ── */}
+      {activeColFilter ? (() => {
+        const col = columns.find(c => c.key === activeColFilter);
+        return (
+          <div style={{ padding:isMobile?"0 12px":"0 24px" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:16, paddingBottom:12, borderBottom:"0.5px solid #e8e8e4" }}>
+              <span style={{ fontSize:14 }}>{col.icon}</span>
+              <span style={{ fontSize:13, fontWeight:600, letterSpacing:".06em", textTransform:"uppercase", color:COL[col.key] }}>{col.title}</span>
+              <span style={{ fontSize:12, background:"#f5f5f3", border:"0.5px solid #e0e0de", borderRadius:20, padding:"2px 9px", color:"#777" }}>{col.contacts.length}</span>
+            </div>
+            {col.contacts.length === 0
+              ? <div style={{ textAlign:"center", padding:"3rem", color:"#bbb", fontSize:13 }}>No contacts in this column</div>
+              : <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))", gap:isMobile?12:16 }}>
+                  {col.contacts.map((c, i) => (
+                    <ContactCard key={`${col.key}-${c.id||c.fn}-${c.ln}-${i}`} c={c} idx={i} type={col.key}
+                      onOpen={(contact, type) => { setSelected(contact); setSelectedType(type); }}
+                      onContactedToday={updated => setContacts(prev => prev.map(ct => ct.id === updated.id ? updated : ct))}
+                      onFriendToggle={updated => setContacts(prev => prev.map(ct => ct.id === updated.id ? updated : ct))}
+                      sessionNotes={sessionNotes} setSessionNotes={setSessionNotes} />
+                  ))}
+                </div>
+            }
+          </div>
+        );
+      })() : (
+      /* ── Normal 4-column board ── */
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))", gap:isMobile?12:20, padding:isMobile?"0 12px":"0 24px" }}>
         {columns.map(col => (
           <div key={col.key} style={{ minWidth:0 }}>
@@ -970,19 +1057,29 @@ export default function NetworkingDashboard({ onNewport }) {
                   <ContactCard key={`${col.key}-${c.id||c.fn}-${c.ln}-${i}`} c={c} idx={i} type={col.key}
                     onOpen={(contact, type) => { setSelected(contact); setSelectedType(type); }}
                     onContactedToday={updated => setContacts(prev => prev.map(ct => ct.id === updated.id ? updated : ct))}
+                    onFriendToggle={updated => setContacts(prev => prev.map(ct => ct.id === updated.id ? updated : ct))}
                     sessionNotes={sessionNotes} setSessionNotes={setSessionNotes} />
                 ))
             )}
           </div>
         ))}
       </div>
+      )}
 
       {selected && (
         <DetailPanel c={selected} type={selectedType} onClose={() => { setSelected(null); setSelectedType(null); }}
           interactions={interactions}
           onSaved={updated => { setContacts(prev => prev.map(c => c.id === updated.id ? updated : c)); setSelected(updated); }}
-          // ── NEW: onDeleted moves contact to Inactive and closes panel ──
-          onDeleted={updated => { setContacts(prev => prev.map(c => c.id === updated.id ? updated : c)); setSelected(null); setSelectedType(null); }}
+          onDeleted={updated => {
+            if (updated === null) {
+              // hard delete — remove from list entirely
+              setContacts(prev => prev.filter(c => c.id !== selected.id));
+            } else {
+              // archive — update status in list
+              setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
+            }
+            setSelected(null); setSelectedType(null);
+          }}
           sessionNotes={sessionNotes} setSessionNotes={setSessionNotes} />
       )}
 
