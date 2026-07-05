@@ -198,11 +198,11 @@ function mapSheetRow(row) {
     lc:       String(row["Last Check-in Date"]   || "").trim(),
     nc:       String(row["Next Check-in Date"]   || "").trim(),
     notes:    String(row["Notes"]                || "").trim(),
-    notesDoc: String(row["Notes Doc"]            || "").trim(),
-    region:   String(row["Target Region"]        || "").trim(),
-    // ── NEW: personal friend flag ────────────────────────────────────────
-    // Stored in the "Column 1" sheet column (the existing spare column).
-    // Value is "true" (string) when set, anything else = false.
+    notesDoc:     String(row["Notes Doc"]            || "").trim(),
+    region:       String(row["Target Region"]        || "").trim(),
+    officePhone:  String(row["Office Phone"]         || "").trim(),
+    mobilePhone:  String(row["Mobile Phone"]         || "").trim(),
+    // personal friend flag
     friend:   String(row["Column 1"]             || "").trim().toLowerCase() === "true",
   };
 }
@@ -548,11 +548,13 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
         </div>
 
         {/* Links */}
-        {(c.linkedin || c.email || c.notesDoc) && !editing && (
+        {(c.linkedin || c.email || c.notesDoc || c.officePhone || c.mobilePhone) && !editing && (
           <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
-            {c.linkedin && <a href={c.linkedin} target="_blank" rel="noreferrer" style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>LinkedIn ↗</a>}
-            {c.email    && <a href={`mailto:${c.email}`} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>{c.email}</a>}
-            {c.notesDoc && <a href={c.notesDoc} target="_blank" rel="noreferrer" style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>📄 Open notes ↗</a>}
+            {c.linkedin    && <a href={c.linkedin} target="_blank" rel="noreferrer" style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>LinkedIn ↗</a>}
+            {c.email       && <a href={`mailto:${c.email}`} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>{c.email}</a>}
+            {c.officePhone && <a href={`tel:${c.officePhone}`} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>☎ {c.officePhone}</a>}
+            {c.mobilePhone && <a href={`tel:${c.mobilePhone}`} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>📱 {c.mobilePhone}</a>}
+            {c.notesDoc    && <a href={c.notesDoc} target="_blank" rel="noreferrer" style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>📄 Open notes ↗</a>}
           </div>
         )}
 
@@ -570,6 +572,8 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
             <DetailField label="Grad school"   k="grad"     form={form} setForm={setForm} editing={editing} />
             <DetailField label="LinkedIn"      k="linkedin" form={form} setForm={setForm} editing={editing} />
             <DetailField label="Email"         k="email"    type="email" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Office Phone"  k="officePhone" placeholder="+1 817 555 0100" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Mobile Phone"  k="mobilePhone" placeholder="+55 61 99999 0000" form={form} setForm={setForm} editing={editing} />
             <DetailField label="Last check-in" k="lc"       type="date"  form={form} setForm={setForm} editing={editing} />
             <DetailField label="Next check-in" k="nc"       type="date"  form={form} setForm={setForm} editing={editing} />
             <DetailField label="Notes Doc URL" k="notesDoc" form={form} setForm={setForm} editing={editing} />
@@ -721,7 +725,7 @@ function ModalField({ label, k, type="text", placeholder="", form, set, errors }
 
 // ─── New contact modal ────────────────────────────────────────────────────
 function NewContactModal({ onClose, onAdd }) {
-  const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", ug:"", grad:"", lc:"", nc:"", notes:"", notesDoc:"", region:"", friend:false };
+  const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", officePhone:"", mobilePhone:"", ug:"", grad:"", lc:"", nc:"", notes:"", notesDoc:"", region:"", friend:false };
   const [form,        setForm]        = useState(empty);
   const [errors,      setErrors]      = useState({});
   const [syncing,     setSyncing]     = useState(false);
@@ -807,6 +811,8 @@ function NewContactModal({ onClose, onAdd }) {
           <ModalField label="State"         k="state"    placeholder="VA"          form={form} set={set} errors={errors} />
           <ModalField label="LinkedIn URL"  k="linkedin" type="url"   placeholder="https://linkedin.com/in/…" form={form} set={set} errors={errors} />
           <ModalField label="Email"         k="email"    type="email" placeholder="jane@example.com" form={form} set={set} errors={errors} />
+          <ModalField label="Office Phone"  k="officePhone" placeholder="+1 817 555 0100"      form={form} set={set} errors={errors} />
+          <ModalField label="Mobile Phone"  k="mobilePhone" placeholder="+55 61 99999 0000"    form={form} set={set} errors={errors} />
           <ModalField label="Undergrad"     k="ug"       placeholder="USNA"        form={form} set={set} errors={errors} />
           <ModalField label="Grad school"   k="grad"     placeholder="Harvard"     form={form} set={set} errors={errors} />
           <ModalField label="Last check-in" k="lc"       type="date"               form={form} set={set} errors={errors} />
