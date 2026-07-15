@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 
 // ─── Responsive hook ─────────────────────────────────────────────────────
 function useWindowWidth() {
@@ -250,30 +250,116 @@ function lcCls(d, type) {
   return ds(d) >= THRESHOLD ? "overdue" : "recent";
 }
 
-// ─── Password gate ────────────────────────────────────────────────────────
-const APP_PASSWORD = import.meta.env.VITE_APP_PASSWORD || "network2026";
+// ─── Auth session helpers ─────────────────────────────────────────────────
+const AUTH_STORAGE_KEY = "crm_auth_session";
+const AUTH_SESSION_DAYS = 30;
 
-function PasswordGate({ onUnlock }) {
-  const [input, setInput] = useState("");
-  const [error, setError] = useState(false);
-  const [shake, setShake] = useState(false);
+function readAuthSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed.email || !parsed.ts) return null;
+    const ageMs = Date.now() - parsed.ts;
+    if (ageMs > AUTH_SESSION_DAYS * 86400000) {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch { return null; }
+}
 
-  function attempt() {
-    if (input === APP_PASSWORD) { onUnlock(); }
-    else { setError(true); setShake(true); setTimeout(() => setShake(false), 500); }
+function writeAuthSession(email) {
+  try { localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ email, ts: Date.now() })); } catch {}
+}
+
+function clearAuthSession() {
+  try { localStorage.removeItem(AUTH_STORAGE_KEY); } catch {}
+}
+
+// ─── Google Sign-In gate ───────────────────────────────────────────────────
+function GoogleSignInGate({ onUnlock }) {
+  const buttonRef        = useRef(null);
+  const [error,     setError]     = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [sdkReady,  setSdkReady]  = useState(false);
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+  async function handleCredentialResponse(response) {
+    setVerifying(true);
+    setError("");
+    try {
+      const res = await fetch("/api/verify-google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential: response.credential }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        writeAuthSession(data.email);
+        onUnlock(data.email);
+      } else {
+        setError(data.error || "This Google account isn't authorized for this app.");
+      }
+    } catch (err) {
+      console.error("Google verify failed:", err);
+      setError("Sign-in failed. Please try again.");
+    } finally {
+      setVerifying(false);
+    }
   }
+
+  useEffect(() => {
+    if (!clientId) return;
+
+    function init() {
+      if (!window.google || !window.google.accounts) return;
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: handleCredentialResponse,
+      });
+      if (buttonRef.current) {
+        window.google.accounts.id.renderButton(buttonRef.current, {
+          theme: "outline", size: "large", text: "signin_with", shape: "pill", width: 280,
+        });
+      }
+      setSdkReady(true);
+    }
+
+    if (window.google && window.google.accounts) { init(); return; }
+
+    const existing = document.getElementById("google-identity-script");
+    if (existing) { existing.addEventListener("load", init); return; }
+
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.id = "google-identity-script";
+    script.async = true;
+    script.defer = true;
+    script.onload = init;
+    document.body.appendChild(script);
+  }, [clientId]);
 
   return (
     <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
-      <div style={{ background:"#fff", border:"0.5px solid #e0e0de", borderRadius:16, padding:"2.5rem 2rem", width:"min(360px,90vw)", textAlign:"center", transform:shake?"translateX(-6px)":"none", transition:shake?"transform 0.1s ease":"transform 0.4s ease" }}>
+      <div style={{ background:"#fff", border:"0.5px solid #e0e0de", borderRadius:16, padding:"2.5rem 2rem", width:"min(360px,90vw)", textAlign:"center" }}>
         <div style={{ fontSize:28, marginBottom:8 }}>🔒</div>
         <div style={{ fontSize:19, fontWeight:700, color:"#1a1a18", marginBottom:6 }}>Networking Dashboard</div>
-        <div style={{ fontSize:13, color:"#999", marginBottom:24 }}>Enter your password to continue</div>
-        <input type="password" value={input} onChange={e => { setInput(e.target.value); setError(false); }}
-          onKeyDown={e => e.key === "Enter" && attempt()} placeholder="Password" autoFocus
-          style={{ width:"100%", fontSize:14, padding:"9px 12px", border:error?"1px solid #E24B4A":"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:error?6:16 }} />
-        {error && <div style={{ fontSize:12, color:"#A32D2D", marginBottom:12 }}>Incorrect password</div>}
-        <button onClick={attempt} style={{ width:"100%", fontSize:13, fontWeight:600, padding:"9px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>Enter</button>
+        <div style={{ fontSize:13, color:"#999", marginBottom:24 }}>Sign in with Google to continue</div>
+
+        {!clientId && (
+          <div style={{ fontSize:12, color:"#A32D2D", marginBottom:16, lineHeight:1.5 }}>
+            Missing VITE_GOOGLE_CLIENT_ID environment variable. Set it in Vercel and redeploy.
+          </div>
+        )}
+
+        <div style={{ display:"flex", justifyContent:"center", marginBottom:12 }}>
+          <div ref={buttonRef} />
+        </div>
+
+        {clientId && !sdkReady && <div style={{ fontSize:12, color:"#999" }}>Loading sign-in…</div>}
+        {verifying && <div style={{ fontSize:12, color:"#999" }}>Verifying…</div>}
+        {error && <div style={{ fontSize:12, color:"#A32D2D", marginTop:10 }}>{error}</div>}
       </div>
     </div>
   );
@@ -857,7 +943,8 @@ export default function NetworkingDashboard({ onNewport }) {
   const width = useWindowWidth();
   const isMobile = width < 640;
   const [collapsed,    setCollapsed]    = useState({cold:false, overdue:false, active:false});
-  const [unlocked,     setUnlocked]     = useState(false);
+  const [userEmail,    setUserEmail]    = useState(null);
+  const unlocked = !!userEmail;
   const [contacts,     setContacts]     = useState([]);
   const [interactions, setInteractions] = useState([]);
   const [loading,      setLoading]      = useState(true);
@@ -870,6 +957,16 @@ export default function NetworkingDashboard({ onNewport }) {
   const [regionFilter,   setRegionFilter]   = useState("");
   const [activeColFilter, setActiveColFilter] = useState(""); // "", "active", "overdue", "cold", "inactive"
   const [sessionNotes,   setSessionNotes]   = useState({});
+
+  useEffect(() => {
+    const session = readAuthSession();
+    if (session) setUserEmail(session.email);
+  }, []);
+
+  function handleSignOut() {
+    clearAuthSession();
+    setUserEmail(null);
+  }
 
   function fetchData(isRefresh = false) {
     if (isRefresh) setRefreshing(true);
@@ -916,15 +1013,11 @@ export default function NetworkingDashboard({ onNewport }) {
     const q     = query.toLowerCase().trim();
     let list    = q ? contacts.filter(c => [c.fn,c.ln,c.company,c.industry,c.rel,c.city,c.state,c.notes].join(" ").toLowerCase().includes(q)) : contacts;
     if (regionFilter) list = list.filter(c => c.region === regionFilter);
-    // Normalize status so case/whitespace can't hide a contact ("Active " / "active" still count).
-    const norm = s => (s || "").trim().toLowerCase();
-    const cold     = list.filter(c => norm(c.status) === "never contacted");
-    const inactive = list.filter(c => norm(c.status) === "inactive").sort((a,b)=>new Date(b.lc)-new Date(a.lc));
-    // Catch-all: anything that isn't explicitly Cold or Inactive is treated as Active.
-    // A typo, a blank, or an unexpected Status value can no longer make a contact disappear.
-    const allAct   = list.filter(c => { const s = norm(c.status); return s !== "never contacted" && s !== "inactive"; });
+    const cold     = list.filter(c => c.status === "Never Contacted");
+    const allAct   = list.filter(c => c.status === "Active");
     const overdue  = allAct.filter(c => { const d=pd(c.lc); return d && ds(d)>=THRESHOLD; }).sort((a,b)=>new Date(a.lc)-new Date(b.lc));
     const active   = allAct.filter(c => { const d=pd(c.lc); return !d||ds(d)<THRESHOLD; }).sort((a,b)=>new Date(b.lc)-new Date(a.lc));
+    const inactive = list.filter(c => c.status === "Inactive").sort((a,b)=>new Date(b.lc)-new Date(a.lc));
     return { cold, overdue, active, inactive };
   }, [contacts, query, regionFilter]);
 
@@ -942,7 +1035,7 @@ export default function NetworkingDashboard({ onNewport }) {
     inactive: { background:"#F0F0EE", color:"#777"    },
   };
 
-  if (!unlocked) return <PasswordGate onUnlock={() => setUnlocked(true)} />;
+  if (!unlocked) return <GoogleSignInGate onUnlock={email => setUserEmail(email)} />;
 
   if (loading) return (
     <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
@@ -1012,6 +1105,10 @@ export default function NetworkingDashboard({ onNewport }) {
         )}
         <button onClick={() => setShowNew(true)} style={{ fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
           + New contact
+        </button>
+        <button onClick={handleSignOut} title={userEmail || "Sign out"}
+          style={{ fontSize:12, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#999", cursor:"pointer", whiteSpace:"nowrap" }}>
+          Sign out
         </button>
       </div>
 
