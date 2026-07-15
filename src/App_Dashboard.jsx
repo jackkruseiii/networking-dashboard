@@ -1013,11 +1013,15 @@ export default function NetworkingDashboard({ onNewport }) {
     const q     = query.toLowerCase().trim();
     let list    = q ? contacts.filter(c => [c.fn,c.ln,c.company,c.industry,c.rel,c.city,c.state,c.notes].join(" ").toLowerCase().includes(q)) : contacts;
     if (regionFilter) list = list.filter(c => c.region === regionFilter);
-    const cold     = list.filter(c => c.status === "Never Contacted");
-    const allAct   = list.filter(c => c.status === "Active");
+    // Normalize status so case/whitespace can't hide a contact ("Active " / "active" still count).
+    const norm = s => (s || "").trim().toLowerCase();
+    const cold     = list.filter(c => norm(c.status) === "never contacted");
+    const inactive = list.filter(c => norm(c.status) === "inactive").sort((a,b)=>new Date(b.lc)-new Date(a.lc));
+    // Catch-all: anything that isn't explicitly Cold or Inactive is treated as Active.
+    // A typo, a blank, or an unexpected Status value can no longer make a contact disappear.
+    const allAct   = list.filter(c => { const s = norm(c.status); return s !== "never contacted" && s !== "inactive"; });
     const overdue  = allAct.filter(c => { const d=pd(c.lc); return d && ds(d)>=THRESHOLD; }).sort((a,b)=>new Date(a.lc)-new Date(b.lc));
     const active   = allAct.filter(c => { const d=pd(c.lc); return !d||ds(d)<THRESHOLD; }).sort((a,b)=>new Date(b.lc)-new Date(a.lc));
-    const inactive = list.filter(c => c.status === "Inactive").sort((a,b)=>new Date(b.lc)-new Date(a.lc));
     return { cold, overdue, active, inactive };
   }, [contacts, query, regionFilter]);
 
