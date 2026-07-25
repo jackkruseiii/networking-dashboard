@@ -11,12 +11,54 @@ function useWindowWidth() {
   return width;
 }
 
+// ─── Auth session helpers ─────────────────────────────────────────────────
+const AUTH_STORAGE_KEY = "crm_auth_session";
+const AUTH_SESSION_DAYS = 30;
+
+function readAuthSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed.email || !parsed.ts) return null;
+    const ageMs = Date.now() - parsed.ts;
+    if (ageMs > AUTH_SESSION_DAYS * 86400000) {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch { return null; }
+}
+
+function writeAuthSession(email, credential) {
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ email, credential, ts: Date.now() }));
+  } catch {}
+}
+
+function clearAuthSession() {
+  try { localStorage.removeItem(AUTH_STORAGE_KEY); } catch {}
+}
+
+function getStoredCredential() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed.credential || null;
+  } catch { return null; }
+}
+
 // ─── API helpers ──────────────────────────────────────────────────────────
 async function postToSheet(type, data) {
   try {
+    const credential = getStoredCredential();
     const res = await fetch("/api/log", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(credential ? { "Authorization": `Bearer ${credential}` } : {}),
+      },
       body: JSON.stringify({ type, data }),
     });
     return res.ok;
@@ -25,9 +67,13 @@ async function postToSheet(type, data) {
 
 async function updateContact(data) {
   try {
+    const credential = getStoredCredential();
     const res = await fetch("/api/update", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(credential ? { "Authorization": `Bearer ${credential}` } : {}),
+      },
       body: JSON.stringify({ type: "update_contact", data }),
     });
     return res.ok;
@@ -55,11 +101,7 @@ async function autoMarkInactive(contact) {
 // ─── LinkedIn message generator ───────────────────────────────────────────
 async function generateEmailDraft(contact, interactions) {
   const history = interactions
-    .filter(i => {
-      if (i.id && contact.id) return i.id === contact.id;
-      return i.firstName.toLowerCase() === contact.fn.toLowerCase() &&
-             i.lastName.toLowerCase() === contact.ln.toLowerCase();
-    })
+    .filter(i => i.id && contact.id && i.id === contact.id)
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
     .slice(0, 5);
 
@@ -179,41 +221,40 @@ Rules:
   }
 }
 
-// ─── Sheet row mapper ─────────────────────────────────────────────────────
-function mapSheetRow(row) {
+// ─── Supabase row mappers ─────────────────────────────────────────────────
+function mapSupabaseRow(row) {
   return {
-    id:       String(row["ID"]                   || "").trim(),
-    fn:       String(row["First name"]           || "").trim(),
-    ln:       String(row["Last Name"]            || "").trim(),
-    industry: String(row["Industry"]             || "").trim(),
-    company:  String(row["Company"]              || "").trim(),
-    linkedin: String(row["LinkedIn Profile"]     || "").trim(),
-    email:    String(row["Email"]                || "").trim(),
-    rel:      String(row["Relationship"]         || "").trim(),
-    city:     String(row["City"]                 || "").trim(),
-    state:    String(row["State"]                || "").trim(),
-    ug:       String(row["Undergraduate School"] || "").trim(),
-    grad:     String(row["Graduate School"]      || "").trim(),
-    status:   String(row["Status"]               || "Never Contacted").trim(),
-    lc:       String(row["Last Check-in Date"]   || "").trim(),
-    nc:       String(row["Next Check-in Date"]   || "").trim(),
-    notes:    String(row["Notes"]                || "").trim(),
-    notesDoc:     String(row["Notes Doc"]            || "").trim(),
-    region:       String(row["Target Region"]        || "").trim(),
-    officePhone:  String(row["Office Phone"]         || "").trim(),
-    mobilePhone:  String(row["Mobile Phone"]         || "").trim(),
-    // personal friend flag
-    friend:   String(row["Column 1"]             || "").trim().toLowerCase() === "true",
+    id:          String(row.id            || ""),
+    fn:          String(row.first_name    || ""),
+    ln:          String(row.last_name     || ""),
+    industry:    String(row.industry      || ""),
+    company:     String(row.company       || ""),
+    linkedin:    String(row.linkedin      || ""),
+    email:       String(row.email         || ""),
+    officePhone: String(row.office_phone  || ""),
+    mobilePhone: String(row.mobile_phone  || ""),
+    rel:         String(row.relationship  || ""),
+    city:        String(row.city          || ""),
+    state:       String(row.state         || ""),
+    ug:          String(row.undergrad     || ""),
+    grad:        String(row.grad_school   || ""),
+    status:      String(row.status        || "Never Contacted"),
+    lc:          row.last_checkin ? new Date(row.last_checkin).toISOString().split("T")[0] : "",
+    nc:          row.next_checkin ? new Date(row.next_checkin).toISOString().split("T")[0] : "",
+    notes:       String(row.notes         || ""),
+    notesDoc:    String(row.notes_doc     || ""),
+    region:      String(row.target_region || ""),
+    friend:      row.is_friend === true,
   };
 }
 
-function mapInteractionRow(row) {
+function mapSupabaseInteraction(row) {
   return {
-    id:        String(row["Contact ID"] || "").trim(),
-    timestamp: String(row["Timestamp"]  || row["Logged At"] || "").trim(),
-    firstName: String(row["First Name"] || "").trim(),
-    lastName:  String(row["Last Name"]  || "").trim(),
-    note:      String(row["Note"]       || "").trim(),
+    id:        String(row.contact_id || ""),
+    timestamp: String(row.created_at || ""),
+    firstName: "",
+    lastName:  "",
+    note:      String(row.note       || ""),
   };
 }
 
@@ -250,33 +291,6 @@ function lcCls(d, type) {
   return ds(d) >= THRESHOLD ? "overdue" : "recent";
 }
 
-// ─── Auth session helpers ─────────────────────────────────────────────────
-const AUTH_STORAGE_KEY = "crm_auth_session";
-const AUTH_SESSION_DAYS = 30;
-
-function readAuthSession() {
-  try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed.email || !parsed.ts) return null;
-    const ageMs = Date.now() - parsed.ts;
-    if (ageMs > AUTH_SESSION_DAYS * 86400000) {
-      localStorage.removeItem(AUTH_STORAGE_KEY);
-      return null;
-    }
-    return parsed;
-  } catch { return null; }
-}
-
-function writeAuthSession(email) {
-  try { localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ email, ts: Date.now() })); } catch {}
-}
-
-function clearAuthSession() {
-  try { localStorage.removeItem(AUTH_STORAGE_KEY); } catch {}
-}
-
 // ─── Google Sign-In gate ───────────────────────────────────────────────────
 function GoogleSignInGate({ onUnlock }) {
   const buttonRef        = useRef(null);
@@ -296,7 +310,7 @@ function GoogleSignInGate({ onUnlock }) {
       });
       const data = await res.json();
       if (data.success) {
-        writeAuthSession(data.email);
+        writeAuthSession(data.email, response.credential);
         onUnlock(data.email);
       } else {
         setError(data.error || "This Google account isn't authorized for this app.");
@@ -343,13 +357,13 @@ function GoogleSignInGate({ onUnlock }) {
   return (
     <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
       <div style={{ background:"#fff", border:"0.5px solid #e0e0de", borderRadius:16, padding:"2.5rem 2rem", width:"min(360px,90vw)", textAlign:"center" }}>
-        <div style={{ fontSize:28, marginBottom:8 }}>🔒</div>
-        <div style={{ fontSize:19, fontWeight:700, color:"#1a1a18", marginBottom:6 }}>Networking Dashboard</div>
+        <div style={{ fontSize:28, marginBottom:8 }}>⚓</div>
+        <div style={{ fontSize:19, fontWeight:700, color:"#1a1a18", marginBottom:6 }}>Mahan</div>
         <div style={{ fontSize:13, color:"#999", marginBottom:24 }}>Sign in with Google to continue</div>
 
         {!clientId && (
           <div style={{ fontSize:12, color:"#A32D2D", marginBottom:16, lineHeight:1.5 }}>
-            Missing VITE_GOOGLE_CLIENT_ID environment variable. Set it in Vercel and redeploy.
+            Missing VITE_GOOGLE_CLIENT_ID environment variable.
           </div>
         )}
 
@@ -432,7 +446,6 @@ function ContactCard({ c, idx, type, onOpen, onContactedToday, onFriendToggle, s
           <div style={{ fontSize:14, fontWeight:600, lineHeight:1.2, marginBottom:2 }}>{c.fn} {c.ln}</div>
           <div style={{ fontSize:11, color:"#777" }}>{c.rel || (c.company || "—")}</div>
         </div>
-        {/* 🤝 friend toggle — always visible, one click, no edit mode needed */}
         <button onClick={handleFriendToggle} disabled={togglingFriend} title={c.friend ? "Remove personal friend" : "Mark as personal friend"}
           style={{ background:c.friend?"#dbeeff":"transparent", border:c.friend?"0.5px solid #b3d4f5":"0.5px solid #ddd", borderRadius:20, padding:"2px 8px", fontSize:12, cursor:"pointer", color:c.friend?"#1565a8":"#bbb", flexShrink:0, transition:"all .15s" }}>
           🤝
@@ -472,12 +485,12 @@ function ContactCard({ c, idx, type, onOpen, onContactedToday, onFriendToggle, s
         onFocus={() => setShowSave(true)} placeholder="Log a new note…" rows={2}
         style={{ width:"100%", fontSize:12, padding:"7px 9px", border:"0.5px solid #e0e0de", borderRadius:7, resize:"vertical", minHeight:50, fontFamily:"inherit", background:"#f9f9f7", color:"#222", lineHeight:1.5, outline:"none", boxSizing:"border-box" }} />
       {showSave && <button onClick={handleSaveNote} disabled={syncing} style={{ marginTop:5, fontSize:11, padding:"3px 10px", borderRadius:6, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>{syncing?"Saving…":"Save note"}</button>}
-      {saved && <div style={{ fontSize:10, color:"#3B6D11", marginTop:3 }}>✓ Saved to sheet</div>}
+      {saved && <div style={{ fontSize:10, color:"#3B6D11", marginTop:3 }}>✓ Saved</div>}
     </div>
   );
 }
 
-// ─── Reusable edit field components (module level — prevents focus loss) ──
+// ─── Reusable edit field components ──────────────────────────────────────
 const detailInp = { fontSize:13, padding:"7px 10px", border:"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box" };
 const detailLbl = { fontSize:10, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:3, display:"block" };
 
@@ -507,51 +520,35 @@ function DetailSelectField({ label, k, options, form, setForm, editing }) {
   );
 }
 
-// ─── InfoItem (module level — prevents focus loss) ────────────────────────
-function InfoItem({ label, value }) {
-  return (
-    <div style={{ background:"#f9f9f7", borderRadius:8, padding:"8px 10px" }}>
-      <div style={{ fontSize:10, color:"#999", textTransform:"uppercase", letterSpacing:".04em", marginBottom:2 }}>{label}</div>
-      <div style={{ fontSize:13, color:value ? "#222" : "#bbb", fontStyle:value ? "normal" : "italic" }}>{value || "—"}</div>
-    </div>
-  );
-}
-
 // ─── Detail / Edit panel ──────────────────────────────────────────────────
 function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessionNotes, setSessionNotes }) {
-  const [editing,      setEditing]      = useState(false);
-  const [form,         setForm]         = useState({ ...c });
-  const [saving,       setSaving]       = useState(false);
-  const [noteSaved,    setNoteSaved]    = useState(false);
-  const [noteSyncing,  setNoteSyncing]  = useState(false);
-  const [draftLoading, setDraftLoading] = useState(false);
-  const [draft,        setDraft]        = useState(null);
-  const [confirmArchive,     setConfirmArchive]     = useState(false);
-  const [archiving,          setArchiving]          = useState(false);
-  const [confirmHardDelete,  setConfirmHardDelete]  = useState(false);
-  const [hardDeleting,       setHardDeleting]       = useState(false);
+  const [editing,           setEditing]           = useState(false);
+  const [form,              setForm]              = useState({ ...c });
+  const [saving,            setSaving]            = useState(false);
+  const [noteSaved,         setNoteSaved]         = useState(false);
+  const [noteSyncing,       setNoteSyncing]       = useState(false);
+  const [draftLoading,      setDraftLoading]      = useState(false);
+  const [draft,             setDraft]             = useState(null);
+  const [confirmArchive,    setConfirmArchive]    = useState(false);
+  const [archiving,         setArchiving]         = useState(false);
+  const [confirmHardDelete, setConfirmHardDelete] = useState(false);
+  const [hardDeleting,      setHardDeleting]      = useState(false);
 
   if (!c) return null;
-  const av  = AV[type] || AV.active;
-  const d   = pd(editing ? form.lc : c.lc);
-  const nd  = pd(editing ? form.nc : c.nc);
-  const loc = [c.city, c.state].filter(Boolean).join(", ");
-  const cls = lcCls(d, type);
+  const av   = AV[type] || AV.active;
+  const d    = pd(editing ? form.lc : c.lc);
+  const cls  = lcCls(d, type);
   const days = d ? ds(d) : null;
   const dl   = days === null ? null : days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
-  const noteKey = `detail-${c.fn}-${c.ln}`;
+  const noteKey = `detail-${c.id}`;
   const note    = sessionNotes[noteKey] || "";
 
   const history = interactions
-    .filter(i => {
-      if (i.id && c.id) return i.id === c.id;
-      return i.firstName.toLowerCase() === c.fn.toLowerCase() && i.lastName.toLowerCase() === c.ln.toLowerCase();
-    })
+    .filter(i => i.id && c.id && i.id === c.id)
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
   async function handleSaveEdit() {
     setSaving(true);
-    // ── NEW: persist friend flag via Column 1 field ───────────────────
     const payload = { ...form, col1: form.friend ? "true" : "" };
     await updateContact(payload);
     setSaving(false);
@@ -575,7 +572,6 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
     setDraftLoading(false);
   }
 
-  // soft archive → moves to Inactive, history preserved
   async function handleArchive() {
     setArchiving(true);
     const updated = { ...c, status: "Inactive" };
@@ -589,37 +585,38 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
     onDeleted(updated);
   }
 
-  // hard delete → calls /api/delete endpoint, removes from sheet entirely
   async function handleHardDelete() {
     setHardDeleting(true);
     try {
+      const credential = getStoredCredential();
       await fetch("/api/delete", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(credential ? { "Authorization": `Bearer ${credential}` } : {}),
+        },
         body: JSON.stringify({ id: c.id }),
       });
     } catch (err) { console.error("Delete failed:", err); }
     setHardDeleting(false);
-    onDeleted(null); // null signals full removal
+    onDeleted(null);
   }
 
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:window.innerWidth<640?"flex-end":"center", justifyContent:"center", padding:window.innerWidth<640?0:16 }}>
       <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:window.innerWidth<640?"16px 16px 0 0":16, border:"0.5px solid #e0e0de", width:window.innerWidth<640?"100%":"min(580px,100%)", maxHeight:window.innerWidth<640?"92vh":"88vh", overflowY:"auto", padding:window.innerWidth<640?"20px 16px":24 }}>
 
-        {/* Header */}
         <div style={{ display:"flex", alignItems:"flex-start", gap:14, marginBottom:18 }}>
           <div style={{ width:52, height:52, minWidth:52, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:600, background:av.bg, color:av.color }}>{ini(editing?form:c)}</div>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:20, fontWeight:600, marginBottom:3 }}>
               {editing ? `${form.fn} ${form.ln}` : `${c.fn} ${c.ln}`}
-              {/* ── NEW: friend badge in header ── */}
               {(editing ? form.friend : c.friend) && <span style={{ marginLeft:8, fontSize:12, padding:"2px 9px", borderRadius:10, background:"#dbeeff", color:"#1565a8", border:"0.5px solid #b3d4f5", fontWeight:600 }}>🤝 Personal Friend</span>}
             </div>
             <div style={{ fontSize:13, color:"#777" }}>{c.rel || (c.company || "—")}</div>
           </div>
           <div style={{ display:"flex", gap:8, flexShrink:0, flexWrap:"wrap", justifyContent:"flex-end" }}>
-            {!editing && <button onClick={() => { setEditing(true); setConfirmDelete(false); }} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>✏️ Edit</button>}
+            {!editing && <button onClick={() => { setEditing(true); setConfirmArchive(false); setConfirmHardDelete(false); }} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>✏️ Edit</button>}
             {editing && <>
               <button onClick={handleSaveEdit} disabled={saving} style={{ fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:7, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>{saving?"Saving…":"Save"}</button>
               <button onClick={() => { setEditing(false); setForm({ ...c }); }} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
@@ -628,12 +625,10 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
           </div>
         </div>
 
-        {/* Last contact badge */}
         <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:12, padding:"5px 10px", borderRadius:8, marginBottom:16, ...BADGE[cls], width:"fit-content" }}>
           {d ? <><span style={{ fontWeight:500 }}>Last contact: {fd(d)}</span><span style={{ opacity:.75 }}>— {dl}</span></> : <span>No interaction on record</span>}
         </div>
 
-        {/* Links */}
         {(c.linkedin || c.email || c.notesDoc || c.officePhone || c.mobilePhone) && !editing && (
           <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
             {c.linkedin    && <a href={c.linkedin} target="_blank" rel="noreferrer" style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", color:"#555", textDecoration:"none" }}>LinkedIn ↗</a>}
@@ -644,95 +639,63 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
           </div>
         )}
 
-        {/* Details grid */}
         <div style={{ marginBottom:18 }}>
           <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>Details</div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
             <DetailSelectField label="Status"       k="status"   options={["Never Contacted","Active","Inactive"]} form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Industry"      k="industry" form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Company"       k="company"  form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Relationship"  k="rel"      form={form} setForm={setForm} editing={editing} />
-            <DetailField label="City"          k="city"     form={form} setForm={setForm} editing={editing} />
-            <DetailField label="State"         k="state"    form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Undergrad"     k="ug"       form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Grad school"   k="grad"     form={form} setForm={setForm} editing={editing} />
-            <DetailField label="LinkedIn"      k="linkedin" form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Email"         k="email"    type="email" form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Office Phone"  k="officePhone" placeholder="+1 817 555 0100" form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Mobile Phone"  k="mobilePhone" placeholder="+55 61 99999 0000" form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Last check-in" k="lc"       type="date"  form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Next check-in" k="nc"       type="date"  form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Notes Doc URL" k="notesDoc" form={form} setForm={setForm} editing={editing} />
-            <DetailField label="Target Region" k="region"   form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Industry"      k="industry"    form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Company"       k="company"     form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Relationship"  k="rel"         form={form} setForm={setForm} editing={editing} />
+            <DetailField label="City"          k="city"        form={form} setForm={setForm} editing={editing} />
+            <DetailField label="State"         k="state"       form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Undergrad"     k="ug"          form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Grad school"   k="grad"        form={form} setForm={setForm} editing={editing} />
+            <DetailField label="LinkedIn"      k="linkedin"    form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Email"         k="email"       type="email" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Office Phone"  k="officePhone" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Mobile Phone"  k="mobilePhone" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Last check-in" k="lc"          type="date" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Next check-in" k="nc"          type="date" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Notes Doc URL" k="notesDoc"    form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Target Region" k="region"      form={form} setForm={setForm} editing={editing} />
           </div>
-
-          {/* ── NEW: Personal Friend toggle (edit mode only) ── */}
           {editing && (
             <div style={{ marginTop:10 }}>
-              <button
-                onClick={() => setForm(p => ({ ...p, friend: !p.friend }))}
-                style={{
-                  display:"inline-flex", alignItems:"center", gap:8,
-                  padding:"8px 16px", borderRadius:20,
-                  border: form.friend ? "2px solid #1565a8" : "1.5px solid #ccc",
-                  background: form.friend ? "#dbeeff" : "#fff",
-                  color: form.friend ? "#1565a8" : "#888",
-                  fontSize:13, fontWeight:600, cursor:"pointer",
-                }}>
+              <button onClick={() => setForm(p => ({ ...p, friend: !p.friend }))}
+                style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"8px 16px", borderRadius:20, border:form.friend?"2px solid #1565a8":"1.5px solid #ccc", background:form.friend?"#dbeeff":"#fff", color:form.friend?"#1565a8":"#888", fontSize:13, fontWeight:600, cursor:"pointer" }}>
                 <span style={{ fontSize:16 }}>🤝</span>
                 {form.friend ? "Personal Friend" : "Mark as Personal Friend"}
               </button>
-              <div style={{ fontSize:11, color:"#aaa", marginTop:4 }}>Highlights the card in light blue across the dashboard</div>
             </div>
           )}
         </div>
 
-        {/* Archive + hard delete section */}
         {!editing && (
           <div style={{ marginBottom:18, padding:"12px 14px", background:"#fafaf8", borderRadius:10, border:"0.5px solid #eee" }}>
             <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:10 }}>Remove contact</div>
-
-            {/* Archive row */}
             {!confirmArchive && !confirmHardDelete && (
               <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                <button onClick={() => setConfirmArchive(true)}
-                  style={{ fontSize:12, padding:"5px 14px", borderRadius:7, border:"0.5px solid #f0c8c3", background:"#fdf0ee", color:"#c0392b", cursor:"pointer" }}>
-                  🗄 Archive (move to Inactive)
-                </button>
-                <button onClick={() => setConfirmHardDelete(true)}
-                  style={{ fontSize:12, padding:"5px 14px", borderRadius:7, border:"0.5px solid #f0c8c3", background:"#fdf0ee", color:"#c0392b", cursor:"pointer" }}>
-                  🗑 Delete permanently
-                </button>
+                <button onClick={() => setConfirmArchive(true)} style={{ fontSize:12, padding:"5px 14px", borderRadius:7, border:"0.5px solid #f0c8c3", background:"#fdf0ee", color:"#c0392b", cursor:"pointer" }}>🗄 Archive (move to Inactive)</button>
+                <button onClick={() => setConfirmHardDelete(true)} style={{ fontSize:12, padding:"5px 14px", borderRadius:7, border:"0.5px solid #f0c8c3", background:"#fdf0ee", color:"#c0392b", cursor:"pointer" }}>🗑 Delete permanently</button>
               </div>
             )}
-
             {confirmArchive && (
               <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
                 <span style={{ fontSize:12, color:"#c0392b", fontWeight:500 }}>Move {c.fn} to Inactive? History is preserved.</span>
-                <button onClick={handleArchive} disabled={archiving}
-                  style={{ fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:7, border:"none", background:"#c0392b", color:"#fff", cursor:"pointer" }}>
-                  {archiving ? "Archiving…" : "Yes, archive"}
-                </button>
-                <button onClick={() => setConfirmArchive(false)}
-                  style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
+                <button onClick={handleArchive} disabled={archiving} style={{ fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:7, border:"none", background:"#c0392b", color:"#fff", cursor:"pointer" }}>{archiving?"Archiving…":"Yes, archive"}</button>
+                <button onClick={() => setConfirmArchive(false)} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
               </div>
             )}
-
             {confirmHardDelete && (
               <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
                 <span style={{ fontSize:12, color:"#c0392b", fontWeight:500 }}>Permanently delete {c.fn} {c.ln}? This cannot be undone.</span>
-                <button onClick={handleHardDelete} disabled={hardDeleting}
-                  style={{ fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:7, border:"none", background:"#7b0000", color:"#fff", cursor:"pointer" }}>
-                  {hardDeleting ? "Deleting…" : "Yes, delete forever"}
-                </button>
-                <button onClick={() => setConfirmHardDelete(false)}
-                  style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
+                <button onClick={handleHardDelete} disabled={hardDeleting} style={{ fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:7, border:"none", background:"#7b0000", color:"#fff", cursor:"pointer" }}>{hardDeleting?"Deleting…":"Yes, delete forever"}</button>
+                <button onClick={() => setConfirmHardDelete(false)} style={{ fontSize:12, padding:"5px 12px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
               </div>
             )}
           </div>
         )}
 
-        {/* Log a note */}
         <div style={{ marginBottom:18 }}>
           <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>Log a note</div>
           <textarea value={note} onChange={e => setSessionNotes(p => ({ ...p, [noteKey]: e.target.value }))}
@@ -741,10 +704,9 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
           <button onClick={handleSaveNote} disabled={noteSyncing} style={{ marginTop:6, fontSize:12, padding:"5px 14px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>
             {noteSyncing ? "Saving…" : "Save note"}
           </button>
-          {noteSaved && <span style={{ fontSize:11, color:"#3B6D11", marginLeft:8 }}>✓ Saved to sheet</span>}
+          {noteSaved && <span style={{ fontSize:11, color:"#3B6D11", marginLeft:8 }}>✓ Saved</span>}
         </div>
 
-        {/* LinkedIn draft */}
         <div style={{ marginBottom:18 }}>
           <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>LinkedIn message</div>
           <button onClick={handleGenerateDraft} disabled={draftLoading}
@@ -758,20 +720,13 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
                 <div style={{ fontSize:13, color:"#333", lineHeight:1.7, whiteSpace:"pre-wrap" }}>{draft.body}</div>
               </div>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                <button onClick={() => navigator.clipboard.writeText(draft.body)}
-                  style={{ fontSize:12, fontWeight:500, padding:"6px 14px", borderRadius:7, border:"none", background:"#0a66c2", color:"#fff", cursor:"pointer" }}>
-                  Copy for LinkedIn
-                </button>
-                <button onClick={handleGenerateDraft} disabled={draftLoading}
-                  style={{ fontSize:12, padding:"6px 14px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>
-                  Regenerate
-                </button>
+                <button onClick={() => navigator.clipboard.writeText(draft.body)} style={{ fontSize:12, fontWeight:500, padding:"6px 14px", borderRadius:7, border:"none", background:"#0a66c2", color:"#fff", cursor:"pointer" }}>Copy for LinkedIn</button>
+                <button onClick={handleGenerateDraft} disabled={draftLoading} style={{ fontSize:12, padding:"6px 14px", borderRadius:7, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Regenerate</button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Interaction history */}
         <div>
           <div style={{ fontSize:11, fontWeight:500, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>
             Interaction history {history.length > 0 && <span style={{ fontWeight:400 }}>({history.length})</span>}
@@ -794,7 +749,7 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
   );
 }
 
-// ─── New contact field (module level — prevents focus loss) ──────────────
+// ─── New contact modal ────────────────────────────────────────────────────
 const modalInp = { fontSize:13, padding:"8px 10px", border:"0.5px solid #e0e0de", borderRadius:8, background:"#f9f9f7", color:"#222", fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box" };
 const modalLbl = { fontSize:11, fontWeight:500, color:"#666", textTransform:"uppercase", letterSpacing:".04em", marginBottom:4, display:"block" };
 
@@ -809,41 +764,28 @@ function ModalField({ label, k, type="text", placeholder="", form, set, errors }
   );
 }
 
-// ─── New contact modal ────────────────────────────────────────────────────
 function NewContactModal({ onClose, onAdd }) {
   const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", officePhone:"", mobilePhone:"", ug:"", grad:"", lc:"", nc:"", notes:"", notesDoc:"", region:"", friend:false };
-  const [form,        setForm]        = useState(empty);
-  const [errors,      setErrors]      = useState({});
-  const [syncing,     setSyncing]     = useState(false);
-  const [liText,      setLiText]      = useState("");
-  const [parsing,     setParsing]     = useState(false);
-  const [parsed,      setParsed]      = useState(false);
+  const [form,    setForm]    = useState(empty);
+  const [errors,  setErrors]  = useState({});
+  const [syncing, setSyncing] = useState(false);
+  const [liText,  setLiText]  = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [parsed,  setParsed]  = useState(false);
 
   function set(k, v) { setForm(p => ({ ...p, [k]: v })); }
 
   async function handleParseLinkedIn() {
     if (!liText.trim()) return;
-    setParsing(true);
-    setParsed(false);
+    setParsing(true); setParsed(false);
     const result = await parseLinkedInProfile(liText);
     setParsing(false);
     if (result) {
-      setForm(p => ({
-        ...p,
-        fn:       result.fn       || p.fn,
-        ln:       result.ln       || p.ln,
-        company:  result.company  || p.company,
-        industry: result.industry || p.industry,
-        city:     result.city     || p.city,
-        state:    result.state    || p.state,
-        ug:       result.ug       || p.ug,
-        grad:     result.grad     || p.grad,
-        notes:    result.notes    || p.notes,
-      }));
+      setForm(p => ({ ...p, fn:result.fn||p.fn, ln:result.ln||p.ln, company:result.company||p.company, industry:result.industry||p.industry, city:result.city||p.city, state:result.state||p.state, ug:result.ug||p.ug, grad:result.grad||p.grad, notes:result.notes||p.notes }));
       setParsed(true);
       setTimeout(() => setParsed(false), 3000);
     } else {
-      alert("Couldn't parse that text — try pasting more of the profile, or fill in the fields manually below.");
+      alert("Couldn't parse that text — fill in manually.");
     }
   }
 
@@ -870,22 +812,21 @@ function NewContactModal({ onClose, onAdd }) {
 
         <div style={{ background:"#f0f6fb", border:"0.5px solid #cfe2f3", borderRadius:10, padding:"14px 16px", marginBottom:20 }}>
           <div style={{ fontSize:12, fontWeight:600, color:"#0a66c2", marginBottom:6 }}>💼 Paste from LinkedIn (optional)</div>
-          <div style={{ fontSize:11, color:"#666", marginBottom:8, lineHeight:1.5 }}>Open their LinkedIn profile, select all (Ctrl/Cmd+A), copy, and paste the text below. Claude will fill in the fields automatically.</div>
           <textarea value={liText} onChange={e => setLiText(e.target.value)} placeholder="Paste LinkedIn profile text here…" rows={4}
             style={{ width:"100%", fontSize:12, padding:"8px 10px", border:"0.5px solid #cfe2f3", borderRadius:8, background:"#fff", color:"#222", fontFamily:"inherit", outline:"none", resize:"vertical", boxSizing:"border-box", marginBottom:8 }} />
           <button onClick={handleParseLinkedIn} disabled={parsing || !liText.trim()}
             style={{ fontSize:12, fontWeight:500, padding:"6px 14px", borderRadius:7, border:"none", background:"#0a66c2", color:"#fff", cursor:liText.trim()?"pointer":"default", opacity:liText.trim()?1:0.5 }}>
             {parsing ? "✍️ Parsing…" : "Fill fields from LinkedIn"}
           </button>
-          {parsed && <span style={{ fontSize:11, color:"#3B6D11", marginLeft:8 }}>✓ Fields filled in below — review and edit as needed</span>}
+          {parsed && <span style={{ fontSize:11, color:"#3B6D11", marginLeft:8 }}>✓ Fields filled — review and edit as needed</span>}
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
-          <ModalField label="First name *" k="fn"       placeholder="Jane"        form={form} set={set} errors={errors} />
-          <ModalField label="Last name *"  k="ln"       placeholder="Smith"       form={form} set={set} errors={errors} />
-          <ModalField label="Company"      k="company"  placeholder="Acme Corp"   form={form} set={set} errors={errors} />
-          <ModalField label="Industry"     k="industry" placeholder="Defense, Tech…" form={form} set={set} errors={errors} />
-          <ModalField label="Relationship" k="rel"      placeholder="USNA classmate, FAO…" form={form} set={set} errors={errors} />
+          <ModalField label="First name *" k="fn"          placeholder="Jane"                          form={form} set={set} errors={errors} />
+          <ModalField label="Last name *"  k="ln"          placeholder="Smith"                         form={form} set={set} errors={errors} />
+          <ModalField label="Company"      k="company"     placeholder="Acme Corp"                     form={form} set={set} errors={errors} />
+          <ModalField label="Industry"     k="industry"    placeholder="Defense, Tech…"                form={form} set={set} errors={errors} />
+          <ModalField label="Relationship" k="rel"         placeholder="USNA classmate, FAO…"          form={form} set={set} errors={errors} />
           <div style={{ display:"flex", flexDirection:"column" }}>
             <label style={modalLbl}>Status</label>
             <select value={form.status} onChange={e => set("status", e.target.value)} style={{ ...modalInp, cursor:"pointer" }}>
@@ -893,36 +834,26 @@ function NewContactModal({ onClose, onAdd }) {
               <option value="Active">Active</option>
             </select>
           </div>
-          <ModalField label="City"          k="city"     placeholder="Arlington"   form={form} set={set} errors={errors} />
-          <ModalField label="State"         k="state"    placeholder="VA"          form={form} set={set} errors={errors} />
-          <ModalField label="LinkedIn URL"  k="linkedin" type="url"   placeholder="https://linkedin.com/in/…" form={form} set={set} errors={errors} />
-          <ModalField label="Email"         k="email"    type="email" placeholder="jane@example.com" form={form} set={set} errors={errors} />
-          <ModalField label="Office Phone"  k="officePhone" placeholder="+1 817 555 0100"      form={form} set={set} errors={errors} />
-          <ModalField label="Mobile Phone"  k="mobilePhone" placeholder="+55 61 99999 0000"    form={form} set={set} errors={errors} />
-          <ModalField label="Undergrad"     k="ug"       placeholder="USNA"        form={form} set={set} errors={errors} />
-          <ModalField label="Grad school"   k="grad"     placeholder="Harvard"     form={form} set={set} errors={errors} />
-          <ModalField label="Last check-in" k="lc"       type="date"               form={form} set={set} errors={errors} />
-          <ModalField label="Next check-in" k="nc"       type="date"               form={form} set={set} errors={errors} />
-          <ModalField label="Notes Doc URL"  k="notesDoc" type="url"   placeholder="https://docs.google.com/…" form={form} set={set} errors={errors} />
-          <ModalField label="Target Region"  k="region"   placeholder="DFW, Newport…" form={form} set={set} errors={errors} />
+          <ModalField label="City"          k="city"        placeholder="Arlington"                     form={form} set={set} errors={errors} />
+          <ModalField label="State"         k="state"       placeholder="VA"                            form={form} set={set} errors={errors} />
+          <ModalField label="LinkedIn URL"  k="linkedin"    type="url" placeholder="https://linkedin.com/in/…" form={form} set={set} errors={errors} />
+          <ModalField label="Email"         k="email"       type="email" placeholder="jane@example.com" form={form} set={set} errors={errors} />
+          <ModalField label="Office Phone"  k="officePhone" placeholder="+1 817 555 0100"              form={form} set={set} errors={errors} />
+          <ModalField label="Mobile Phone"  k="mobilePhone" placeholder="+55 61 99999 0000"            form={form} set={set} errors={errors} />
+          <ModalField label="Undergrad"     k="ug"          placeholder="USNA"                         form={form} set={set} errors={errors} />
+          <ModalField label="Grad school"   k="grad"        placeholder="Harvard"                      form={form} set={set} errors={errors} />
+          <ModalField label="Last check-in" k="lc"          type="date"                                form={form} set={set} errors={errors} />
+          <ModalField label="Next check-in" k="nc"          type="date"                                form={form} set={set} errors={errors} />
+          <ModalField label="Notes Doc URL" k="notesDoc"    type="url" placeholder="https://docs.google.com/…" form={form} set={set} errors={errors} />
+          <ModalField label="Target Region" k="region"      placeholder="DFW, Newport…"                form={form} set={set} errors={errors} />
           <div style={{ gridColumn:"1/-1", display:"flex", flexDirection:"column" }}>
             <label style={modalLbl}>Notes</label>
             <textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="How you know them, talking points…" rows={3}
               style={{ ...modalInp, resize:"vertical", minHeight:64 }} />
           </div>
-          {/* ── NEW: Personal Friend toggle in new contact modal ── */}
           <div style={{ gridColumn:"1/-1" }}>
-            <button
-              type="button"
-              onClick={() => set("friend", !form.friend)}
-              style={{
-                display:"inline-flex", alignItems:"center", gap:8,
-                padding:"8px 16px", borderRadius:20,
-                border: form.friend ? "2px solid #1565a8" : "1.5px solid #ccc",
-                background: form.friend ? "#dbeeff" : "#fff",
-                color: form.friend ? "#1565a8" : "#888",
-                fontSize:13, fontWeight:600, cursor:"pointer",
-              }}>
+            <button type="button" onClick={() => set("friend", !form.friend)}
+              style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"8px 16px", borderRadius:20, border:form.friend?"2px solid #1565a8":"1.5px solid #ccc", background:form.friend?"#dbeeff":"#fff", color:form.friend?"#1565a8":"#888", fontSize:13, fontWeight:600, cursor:"pointer" }}>
               <span style={{ fontSize:16 }}>🤝</span>
               {form.friend ? "Personal Friend" : "Mark as Personal Friend"}
             </button>
@@ -940,23 +871,23 @@ function NewContactModal({ onClose, onAdd }) {
 
 // ─── Main dashboard ───────────────────────────────────────────────────────
 export default function NetworkingDashboard({ onNewport }) {
-  const width = useWindowWidth();
+  const width    = useWindowWidth();
   const isMobile = width < 640;
-  const [collapsed,    setCollapsed]    = useState({cold:false, overdue:false, active:false});
-  const [userEmail,    setUserEmail]    = useState(null);
+  const [collapsed,       setCollapsed]       = useState({cold:false, overdue:false, active:false});
+  const [userEmail,       setUserEmail]       = useState(null);
   const unlocked = !!userEmail;
-  const [contacts,     setContacts]     = useState([]);
-  const [interactions, setInteractions] = useState([]);
-  const [loading,      setLoading]      = useState(true);
-  const [refreshing,   setRefreshing]   = useState(false);
-  const [loadError,    setLoadError]    = useState(null);
-  const [selected,     setSelected]     = useState(null);
-  const [selectedType, setSelectedType] = useState(null);
-  const [showNew,      setShowNew]      = useState(false);
-  const [query,          setQuery]          = useState("");
-  const [regionFilter,   setRegionFilter]   = useState("");
-  const [activeColFilter, setActiveColFilter] = useState(""); // "", "active", "overdue", "cold", "inactive"
-  const [sessionNotes,   setSessionNotes]   = useState({});
+  const [contacts,        setContacts]        = useState([]);
+  const [interactions,    setInteractions]    = useState([]);
+  const [loading,         setLoading]         = useState(true);
+  const [refreshing,      setRefreshing]      = useState(false);
+  const [loadError,       setLoadError]       = useState(null);
+  const [selected,        setSelected]        = useState(null);
+  const [selectedType,    setSelectedType]    = useState(null);
+  const [showNew,         setShowNew]         = useState(false);
+  const [query,           setQuery]           = useState("");
+  const [regionFilter,    setRegionFilter]    = useState("");
+  const [activeColFilter, setActiveColFilter] = useState("");
+  const [sessionNotes,    setSessionNotes]    = useState({});
 
   useEffect(() => {
     const session = readAuthSession();
@@ -970,19 +901,27 @@ export default function NetworkingDashboard({ onNewport }) {
 
   function fetchData(isRefresh = false) {
     if (isRefresh) setRefreshing(true);
-    fetch("/api/contacts")
+    const credential = getStoredCredential();
+    fetch("/api/contacts", {
+      headers: { ...(credential ? { "Authorization": `Bearer ${credential}` } : {}) }
+    })
       .then(r => r.json())
       .then(data => {
         if (data.success) {
-          setContacts((data.contacts || []).map(mapSheetRow).filter(c => c.fn || c.ln));
-          setInteractions((data.interactions || []).map(mapInteractionRow));
+          setContacts((data.contacts || []).map(mapSupabaseRow).filter(c => c.fn || c.ln));
+          setInteractions((data.interactions || []).map(mapSupabaseInteraction));
         } else {
-          setLoadError("Could not load contacts from sheet.");
+          setLoadError("Could not load contacts.");
         }
         setLoading(false);
         setRefreshing(false);
       })
-      .catch(err => { console.error(err); setLoadError("Network error loading contacts."); setLoading(false); setRefreshing(false); });
+      .catch(err => {
+        console.error(err);
+        setLoadError("Network error loading contacts.");
+        setLoading(false);
+        setRefreshing(false);
+      });
   }
 
   useEffect(() => {
@@ -1010,26 +949,23 @@ export default function NetworkingDashboard({ onNewport }) {
   }, [contacts]);
 
   const { cold, overdue, active, inactive } = useMemo(() => {
-    const q     = query.toLowerCase().trim();
-    let list    = q ? contacts.filter(c => [c.fn,c.ln,c.company,c.industry,c.rel,c.city,c.state,c.notes].join(" ").toLowerCase().includes(q)) : contacts;
+    const q    = query.toLowerCase().trim();
+    let list   = q ? contacts.filter(c => [c.fn,c.ln,c.company,c.industry,c.rel,c.city,c.state,c.notes].join(" ").toLowerCase().includes(q)) : contacts;
     if (regionFilter) list = list.filter(c => c.region === regionFilter);
-    // Normalize status so case/whitespace can't hide a contact ("Active " / "active" still count).
     const norm = s => (s || "").trim().toLowerCase();
     const cold     = list.filter(c => norm(c.status) === "never contacted");
-    const inactive = list.filter(c => norm(c.status) === "inactive").sort((a,b)=>new Date(b.lc)-new Date(a.lc));
-    // Catch-all: anything that isn't explicitly Cold or Inactive is treated as Active.
-    // A typo, a blank, or an unexpected Status value can no longer make a contact disappear.
+    const inactive = list.filter(c => norm(c.status) === "inactive").sort((a,b) => new Date(b.lc) - new Date(a.lc));
     const allAct   = list.filter(c => { const s = norm(c.status); return s !== "never contacted" && s !== "inactive"; });
-    const overdue  = allAct.filter(c => { const d=pd(c.lc); return d && ds(d)>=THRESHOLD; }).sort((a,b)=>new Date(a.lc)-new Date(b.lc));
-    const active   = allAct.filter(c => { const d=pd(c.lc); return !d||ds(d)<THRESHOLD; }).sort((a,b)=>new Date(b.lc)-new Date(a.lc));
+    const overdue  = allAct.filter(c => { const d=pd(c.lc); return d && ds(d)>=THRESHOLD; }).sort((a,b) => new Date(a.lc) - new Date(b.lc));
+    const active   = allAct.filter(c => { const d=pd(c.lc); return !d||ds(d)<THRESHOLD; }).sort((a,b) => new Date(b.lc) - new Date(a.lc));
     return { cold, overdue, active, inactive };
   }, [contacts, query, regionFilter]);
 
   const columns = [
-    { key:"active",   title:"Active",       icon:"✅", contacts:active   },
-    { key:"overdue",  title:"Overdue",      icon:"⏰", contacts:overdue  },
-    { key:"cold",     title:"Cold Outreach",icon:"✉️", contacts:cold     },
-    { key:"inactive", title:"Inactive",     icon:"💤", contacts:inactive },
+    { key:"active",   title:"Active",        icon:"✅", contacts:active   },
+    { key:"overdue",  title:"Overdue",       icon:"⏰", contacts:overdue  },
+    { key:"cold",     title:"Cold Outreach", icon:"✉️", contacts:cold     },
+    { key:"inactive", title:"Inactive",      icon:"💤", contacts:inactive },
   ];
 
   const colBadgeStyle = {
@@ -1056,11 +992,10 @@ export default function NetworkingDashboard({ onNewport }) {
   return (
     <div style={{ fontFamily:"Georgia,serif", background:"#fafaf8", minHeight:"100vh", paddingBottom:"3rem" }}>
 
-      {/* Header */}
       <div style={{ background:"#fff", borderBottom:"0.5px solid #e8e8e4", padding:isMobile?"12px 16px":"16px 24px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:20 }}>
         <div style={{ marginRight:4 }}>
-          <div style={{ fontSize:isMobile?16:19, fontWeight:700, letterSpacing:"-.02em", color:"#1a1a18" }}>Networking Dashboard</div>
-          <div style={{ fontSize:12, color:"#999", marginTop:1 }}>{contacts.length} contacts total</div>
+          <div style={{ fontSize:isMobile?16:19, fontWeight:700, letterSpacing:"-.02em", color:"#1a1a18" }}>Mahan</div>
+          <div style={{ fontSize:12, color:"#999", marginTop:1 }}>{contacts.length} contacts</div>
         </div>
         <div style={{ flex:1, minWidth:140, maxWidth:320, position:"relative" }}>
           <span style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", fontSize:14, color:"#aaa", pointerEvents:"none" }}>🔍</span>
@@ -1080,25 +1015,19 @@ export default function NetworkingDashboard({ onNewport }) {
           {columns.map(col => {
             const isActive = activeColFilter === col.key;
             return (
-              <button key={col.key}
-                onClick={() => setActiveColFilter(isActive ? "" : col.key)}
-                style={{ fontSize:12, padding:"4px 11px", borderRadius:20, fontWeight:600, cursor:"pointer", border:"none",
-                  outline: isActive ? "2px solid currentColor" : "none",
-                  outlineOffset:2,
-                  opacity: activeColFilter && !isActive ? 0.45 : 1,
-                  ...colBadgeStyle[col.key] }}>
+              <button key={col.key} onClick={() => setActiveColFilter(isActive ? "" : col.key)}
+                style={{ fontSize:12, padding:"4px 11px", borderRadius:20, fontWeight:600, cursor:"pointer", border:"none", outline:isActive?"2px solid currentColor":"none", outlineOffset:2, opacity:activeColFilter && !isActive ? 0.45 : 1, ...colBadgeStyle[col.key] }}>
                 {col.contacts.length} {col.title}
               </button>
             );
           })}
           {activeColFilter && (
-            <button onClick={() => setActiveColFilter("")}
-              style={{ fontSize:12, padding:"4px 11px", borderRadius:20, fontWeight:400, cursor:"pointer", border:"0.5px solid #ccc", background:"transparent", color:"#888" }}>
+            <button onClick={() => setActiveColFilter("")} style={{ fontSize:12, padding:"4px 11px", borderRadius:20, fontWeight:400, cursor:"pointer", border:"0.5px solid #ccc", background:"transparent", color:"#888" }}>
               ✕ Show all
             </button>
           )}
         </div>
-        <button onClick={() => fetchData(true)} disabled={refreshing} title="Reload contacts from sheet"
+        <button onClick={() => fetchData(true)} disabled={refreshing} title="Refresh"
           style={{ fontSize:13, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#555", cursor:"pointer" }}>
           {refreshing ? "⏳" : "🔄"}
         </button>
@@ -1125,7 +1054,6 @@ export default function NetworkingDashboard({ onNewport }) {
         </div>
       )}
 
-      {/* ── Filtered single-column view: 3-across grid ── */}
       {activeColFilter ? (() => {
         const col = columns.find(c => c.key === activeColFilter);
         return (
@@ -1139,7 +1067,7 @@ export default function NetworkingDashboard({ onNewport }) {
               ? <div style={{ textAlign:"center", padding:"3rem", color:"#bbb", fontSize:13 }}>No contacts in this column</div>
               : <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))", gap:isMobile?12:16 }}>
                   {col.contacts.map((c, i) => (
-                    <ContactCard key={`${col.key}-${c.id||c.fn}-${c.ln}-${i}`} c={c} idx={i} type={col.key}
+                    <ContactCard key={`${col.key}-${c.id}-${i}`} c={c} idx={i} type={col.key}
                       onOpen={(contact, type) => { setSelected(contact); setSelectedType(type); }}
                       onContactedToday={updated => setContacts(prev => prev.map(ct => ct.id === updated.id ? updated : ct))}
                       onFriendToggle={updated => setContacts(prev => prev.map(ct => ct.id === updated.id ? updated : ct))}
@@ -1150,43 +1078,40 @@ export default function NetworkingDashboard({ onNewport }) {
           </div>
         );
       })() : (
-      /* ── Normal 4-column board ── */
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))", gap:isMobile?12:20, padding:isMobile?"0 12px":"0 24px" }}>
-        {columns.map(col => (
-          <div key={col.key} style={{ minWidth:0 }}>
-            <div
-              onClick={() => isMobile && setCollapsed(p => ({ ...p, [col.key]: !p[col.key] }))}
-              style={{ display:"flex", alignItems:"center", gap:8, marginBottom:collapsed[col.key]?0:14, paddingBottom:12, borderBottom:"0.5px solid #e8e8e4", background:isMobile?"#fff":"transparent", padding:isMobile?"10px 12px":"0 0 12px 0", borderRadius:isMobile?(collapsed[col.key]?10:"10px 10px 0 0"):0, border:isMobile?"0.5px solid #e0e0de":"none", borderBottom:"0.5px solid #e8e8e4", cursor:isMobile?"pointer":"default", userSelect:"none" }}>
-              <span style={{ fontSize:isMobile?16:14 }}>{col.icon}</span>
-              <span style={{ fontSize:isMobile?14:12, fontWeight:600, letterSpacing:".06em", textTransform:"uppercase", color:COL[col.key], flex:1 }}>{col.title}</span>
-              <span style={{ fontSize:12, background:"#f5f5f3", border:"0.5px solid #e0e0de", borderRadius:20, padding:"2px 9px", color:"#777" }}>{col.contacts.length}</span>
-              {isMobile && <span style={{ fontSize:14, color:"#999", marginLeft:4 }}>{collapsed[col.key] ? "▸" : "▾"}</span>}
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))", gap:isMobile?12:20, padding:isMobile?"0 12px":"0 24px" }}>
+          {columns.map(col => (
+            <div key={col.key} style={{ minWidth:0 }}>
+              <div onClick={() => isMobile && setCollapsed(p => ({ ...p, [col.key]: !p[col.key] }))}
+                style={{ display:"flex", alignItems:"center", gap:8, marginBottom:collapsed[col.key]?0:14, paddingBottom:12, borderBottom:"0.5px solid #e8e8e4", background:isMobile?"#fff":"transparent", padding:isMobile?"10px 12px":"0 0 12px 0", borderRadius:isMobile?(collapsed[col.key]?10:"10px 10px 0 0"):0, border:isMobile?"0.5px solid #e0e0de":"none", borderBottom:"0.5px solid #e8e8e4", cursor:isMobile?"pointer":"default", userSelect:"none" }}>
+                <span style={{ fontSize:isMobile?16:14 }}>{col.icon}</span>
+                <span style={{ fontSize:isMobile?14:12, fontWeight:600, letterSpacing:".06em", textTransform:"uppercase", color:COL[col.key], flex:1 }}>{col.title}</span>
+                <span style={{ fontSize:12, background:"#f5f5f3", border:"0.5px solid #e0e0de", borderRadius:20, padding:"2px 9px", color:"#777" }}>{col.contacts.length}</span>
+                {isMobile && <span style={{ fontSize:14, color:"#999", marginLeft:4 }}>{collapsed[col.key] ? "▸" : "▾"}</span>}
+              </div>
+              {!collapsed[col.key] && (col.contacts.length === 0
+                ? <div style={{ textAlign:"center", padding:"2rem .5rem", color:"#bbb", fontSize:13 }}>{query?"No matches":"None"}</div>
+                : col.contacts.map((c, i) => (
+                    <ContactCard key={`${col.key}-${c.id}-${i}`} c={c} idx={i} type={col.key}
+                      onOpen={(contact, type) => { setSelected(contact); setSelectedType(type); }}
+                      onContactedToday={updated => setContacts(prev => prev.map(ct => ct.id === updated.id ? updated : ct))}
+                      onFriendToggle={updated => setContacts(prev => prev.map(ct => ct.id === updated.id ? updated : ct))}
+                      sessionNotes={sessionNotes} setSessionNotes={setSessionNotes} />
+                  ))
+              )}
             </div>
-            {!collapsed[col.key] && (col.contacts.length === 0
-              ? <div style={{ textAlign:"center", padding:"2rem .5rem", color:"#bbb", fontSize:13 }}>{query?"No matches":"None"}</div>
-              : col.contacts.map((c, i) => (
-                  <ContactCard key={`${col.key}-${c.id||c.fn}-${c.ln}-${i}`} c={c} idx={i} type={col.key}
-                    onOpen={(contact, type) => { setSelected(contact); setSelectedType(type); }}
-                    onContactedToday={updated => setContacts(prev => prev.map(ct => ct.id === updated.id ? updated : ct))}
-                    onFriendToggle={updated => setContacts(prev => prev.map(ct => ct.id === updated.id ? updated : ct))}
-                    sessionNotes={sessionNotes} setSessionNotes={setSessionNotes} />
-                ))
-            )}
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
       )}
 
       {selected && (
-        <DetailPanel c={selected} type={selectedType} onClose={() => { setSelected(null); setSelectedType(null); }}
+        <DetailPanel c={selected} type={selectedType}
+          onClose={() => { setSelected(null); setSelectedType(null); }}
           interactions={interactions}
           onSaved={updated => { setContacts(prev => prev.map(c => c.id === updated.id ? updated : c)); setSelected(updated); }}
           onDeleted={updated => {
             if (updated === null) {
-              // hard delete — remove from list entirely
               setContacts(prev => prev.filter(c => c.id !== selected.id));
             } else {
-              // archive — update status in list
               setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
             }
             setSelected(null); setSelectedType(null);
