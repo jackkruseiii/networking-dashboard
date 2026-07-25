@@ -1,34 +1,50 @@
-// api/contacts.js — Vercel Serverless Function
-// Reads all contacts from Google Sheet and returns them as JSON.
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+)
 
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Origin", "*")
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS")
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
+  if (req.method === "OPTIONS") return res.status(200).end()
+  if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" })
 
-  const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
-
-  if (!APPS_SCRIPT_URL) {
-    return res.status(500).json({ error: "APPS_SCRIPT_URL is not set" });
-  }
+  const authHeader = req.headers.authorization
+  if (!authHeader) return res.status(401).json({ error: "No authorization header" })
 
   try {
-    const response = await fetch(APPS_SCRIPT_URL, {
-      method: "GET",
-      redirect: "follow",
-    });
+    // Verify the user's JWT from Supabase Auth
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      authHeader.replace("Bearer ", "")
+    )
+    if (authError || !user) return res.status(401).json({ error: "Unauthorized" })
 
-    const text = await response.text();
-    const data = JSON.parse(text);
+    // Fetch contacts for this user only
+    const { data: contacts, error: contactsError } = await supabase
+      .from("contacts")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("updated_at", { ascending: false })
 
-    return res.status(200).json(data);
+    if (contactsError) throw contactsError
+
+    // Fetch interactions for this user only
+    const { data: interactions, error: intError } = await supabase
+      .from("interactions")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+
+    if (intError) throw intError
+
+    return res.status(200).json({ success: true, contacts, interactions })
 
   } catch (err) {
-    console.error("Contacts fetch error:", err);
-    return res.status(500).json({ error: err.message });
+    console.error("contacts error:", err)
+    return res.status(500).json({ error: err.message })
   }
 }
