@@ -1,39 +1,31 @@
 // api/weekly-digest.js
 // Cron job: runs every Sunday at 11:00 UTC (8:00am Brasilia BRT)
-// Reads contacts + interactions from Google Sheet, scores activity against
+// Reads contacts + interactions from Supabase, scores activity against
 // transition goals, generates AI analysis, sends a summary email via Gmail SMTP.
 
 import nodemailer from "nodemailer";
+import { createClient } from "@supabase/supabase-js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  GOALS — EDIT THESE NUMBERS TO MATCH REALITY
-//  Everything in the digest is scored against this block. Change a number
-//  here and the scorecard, priorities, and AI analysis all re-baseline.
 // ═══════════════════════════════════════════════════════════════════════════
 const GOALS = {
-  // Outreach cadence
-  WEEKLY_OUTREACH_TARGET: 5,      // real conversations/messages logged per week
-  MONTHLY_NEW_CONTACT_TARGET: 8,  // net-new people added to the network per month
-
-  // Cold pipeline discipline
-  COLD_MAX_AGE_DAYS: 30,          // a "Never Contacted" contact shouldn't sit longer than this
-  COLD_BACKLOG_CEILING: 10,       // if cold count exceeds this, flag it
-
-  // Follow-up cadence
-  OVERDUE_DAYS: 90,               // Active contact with no touch in this many days = overdue
-  STALE_SOON_DAYS: 60,            // early-warning band: 60-89 days = "going quiet"
-
-  // Strategic targeting
-  PRIORITY_REGION: "DFW",         // must match the Target Region value in your sheet
-  REGION_TARGET_COUNT: 100,       // contacts in the priority region by transition
-  PRIORITY_SECTOR: "Education",   // primary sector of interest
-  SECONDARY_SECTORS: ["Defense", "Consulting", "Government", "Energy", "Nonprofit"],
-  SECTOR_TARGET_COUNT: 40,        // contacts in the priority sector by transition
-
-  // Timeline
-  TRANSITION_YEAR: 2028,
+  WEEKLY_OUTREACH_TARGET:    5,
+  MONTHLY_NEW_CONTACT_TARGET: 8,
+  COLD_MAX_AGE_DAYS:         30,
+  COLD_BACKLOG_CEILING:      10,
+  OVERDUE_DAYS:              90,
+  STALE_SOON_DAYS:           60,
+  PRIORITY_REGION:           "DFW",
+  REGION_TARGET_COUNT:       100,
+  PRIORITY_SECTOR:           "Education",
+  SECONDARY_SECTORS:         ["Defense", "Consulting", "Government", "Energy", "Nonprofit"],
+  SECTOR_TARGET_COUNT:       40,
+  TRANSITION_YEAR:           2028,
 };
 // ═══════════════════════════════════════════════════════════════════════════
+
+const USER_EMAIL = "jackkruseiii@gmail.com";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -41,55 +33,73 @@ export default async function handler(req, res) {
   }
 
   const {
-    APPS_SCRIPT_URL,
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY,
     ANTHROPIC_API_KEY,
     GMAIL_FROM,
     GMAIL_APP_PASSWORD,
     GMAIL_TO,
   } = process.env;
 
-  if (!APPS_SCRIPT_URL || !ANTHROPIC_API_KEY || !GMAIL_FROM || !GMAIL_APP_PASSWORD || !GMAIL_TO) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !ANTHROPIC_API_KEY || !GMAIL_FROM || !GMAIL_APP_PASSWORD || !GMAIL_TO) {
     return res.status(500).json({ error: "Missing required environment variables" });
   }
 
   try {
-    // ── 1. Fetch sheet data ───────────────────────────────────────────────
-    const sheetRes = await fetch(APPS_SCRIPT_URL, { redirect: "follow" });
-    const sheetData = await sheetRes.json();
-    if (!sheetData.success) {
-      throw new Error("Failed to fetch sheet data: " + JSON.stringify(sheetData));
-    }
+    // ── 1. Fetch data from Supabase ────────────────────────────────────────
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const contacts = (sheetData.contacts || []).map(row => ({
-      id:       String(row["ID"]                 || "").trim(),
-      fn:       String(row["First name"]         || "").trim(),
-      ln:       String(row["Last Name"]          || "").trim(),
-      industry: String(row["Industry"]           || "").trim(),
-      company:  String(row["Company"]            || "").trim(),
-      status:   String(row["Status"]             || "").trim(),
-      lc:       String(row["Last Check-in Date"] || "").trim(),
-      nc:       String(row["Next Check-in Date"] || "").trim(),
-      notes:    String(row["Notes"]              || "").trim(),
-      rel:      String(row["Relationship"]       || "").trim(),
-      region:   String(row["Target Region"]      || "").trim(),
-      addedAt:  String(row["Added At"]           || "").trim(),
-      friend:   String(row["Column 1"]           || "").trim().toLowerCase() === "true",
+    const { data: rawContacts, error: ce } = await supabase
+      .from("contacts")
+      .select("*")
+      .eq("user_email", USER_EMAIL);
+    if (ce) throw new Error("Contacts fetch error: " + ce.message);
+
+    const { data: rawInteractions, error: ie } = await supabase
+      .from("interactions")
+      .select("*")
+      .eq("user_email", USER_EMAIL)
+      .order("created_at", { ascending: false });
+    if (ie) throw new Error("Interactions fetch error: " + ie.message);
+
+    // ── 2. Map rows ────────────────────────────────────────────────────────
+    const contacts = (rawContacts || []).map(r => ({
+      id:       String(r.id            || ""),
+      fn:       String(r.first_name    || "").trim(),
+      ln:       String(r.last_name     || "").trim(),
+      industry: String(r.industry      || "").trim(),
+      company:  String(r.company       || "").trim(),
+      status:   String(r.status        || "").trim(),
+      lc:       r.last_checkin ? new Date(r.last_checkin).toISOString() : "",
+      nc:       r.next_checkin ? new Date(r.next_checkin).toISOString() : "",
+      notes:    String(r.notes         || "").trim(),
+      rel:      String(r.relationship  || "").trim(),
+      region:   String(r.target_region || "").trim(),
+      addedAt:  r.created_at ? new Date(r.created_at).toISOString() : "",
+      friend:   r.is_friend === true,
     })).filter(c => c.fn || c.ln);
 
-    const interactions = (sheetData.interactions || []).map(row => ({
-      id:        String(row["Contact ID"] || "").trim(),
-      timestamp: String(row["Timestamp"]  || row["Logged At"] || "").trim(),
-      firstName: String(row["First Name"] || "").trim(),
-      lastName:  String(row["Last Name"]  || "").trim(),
-      note:      String(row["Note"]       || "").trim(),
+    // Deduplicate interactions: same contact + same note text (first 80 chars) within 24 hours
+    const rawInts = (rawInteractions || []).map(r => ({
+      id:        String(r.contact_id || ""),
+      timestamp: String(r.created_at || ""),
+      note:      String(r.note       || "").trim(),
     }));
 
-    // ── 2. Helpers ────────────────────────────────────────────────────────
+    const seenInts = new Set();
+    const interactions = rawInts.filter(i => {
+      const key = i.id + "||" + i.note.toLowerCase().slice(0, 80);
+      if (seenInts.has(key)) return false;
+      seenInts.add(key);
+      return true;
+    });
+
+    // ── 3. Helpers ────────────────────────────────────────────────────────
     const TODAY = new Date();
 
-    function pd(s) { if (!s) return null; const d = new Date(s); return isNaN(d) ? null : d; }
-    function ds(d) { return Math.floor((TODAY - d) / 86400000); }
-    function fd(d) { return d.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }); }
+    function pd(s)  { if (!s) return null; const d = new Date(s); return isNaN(d) ? null : d; }
+    function ds(d)  { return Math.floor((TODAY - d) / 86400000); }
+    function fd(d)  { return d.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }); }
     function daysAgo(n) { return new Date(TODAY.getTime() - n * 86400000); }
     function norm(s) { return (s || "").trim().toLowerCase(); }
     function esc(s) {
@@ -99,21 +109,15 @@ export default async function handler(req, res) {
     }
     function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : 0; }
 
-    // Status buckets — normalized, with catch-all so nobody silently vanishes
     const isCold     = c => norm(c.status) === "never contacted";
     const isInactive = c => norm(c.status) === "inactive";
     const isActive   = c => !isCold(c) && !isInactive(c);
 
-    // Match an interaction to a contact by ID, falling back to name
     function interactionsFor(c) {
-      return interactions.filter(i => {
-        if (i.id && c.id) return i.id === c.id;
-        return norm(i.firstName) === norm(c.fn) && norm(i.lastName) === norm(c.ln);
-      });
+      return interactions.filter(i => i.id && c.id && i.id === c.id);
     }
 
-    // System-generated notes are not outreach — exclude from activity counts
-    const AUTO_NOTE_PATTERNS = ["auto-moved to inactive", "contact archived"];
+    const AUTO_NOTE_PATTERNS = ["auto-moved to inactive", "contact archived", "contact restored"];
     const isRealOutreach = i => !AUTO_NOTE_PATTERNS.some(p => norm(i.note).includes(p));
 
     const realInteractions = interactions.filter(isRealOutreach);
@@ -124,36 +128,35 @@ export default async function handler(req, res) {
       return list.filter(i => { const d = pd(i.timestamp); return d && d >= start && d < end; }).length;
     }
 
-    // ── 3. Activity trends (the 90-day view) ──────────────────────────────
-    const thisWeekCount  = countBetween(realInteractions, 7, 0);
-    const lastWeekCount  = countBetween(realInteractions, 14, 7);
-    const last30Count    = countBetween(realInteractions, 30, 0);
-    const last90Count    = countBetween(realInteractions, 90, 0);
-    const weeklyAvg30    = Math.round((last30Count / 30) * 7 * 10) / 10;
-    const weeklyAvg90    = Math.round((last90Count / 90) * 7 * 10) / 10;
+    // ── 4. Activity trends ────────────────────────────────────────────────
+    const thisWeekCount = countBetween(realInteractions, 7, 0);
+    const lastWeekCount = countBetween(realInteractions, 14, 7);
+    const last30Count   = countBetween(realInteractions, 30, 0);
+    const last90Count   = countBetween(realInteractions, 90, 0);
+    const weeklyAvg30   = Math.round((last30Count / 30) * 7 * 10) / 10;
+    const weeklyAvg90   = Math.round((last90Count / 90) * 7 * 10) / 10;
 
     const trendDelta = thisWeekCount - lastWeekCount;
     const trendLabel = trendDelta > 0 ? `up ${trendDelta} vs last week`
                      : trendDelta < 0 ? `down ${Math.abs(trendDelta)} vs last week`
                      : "flat vs last week";
 
-    // New contacts added in last 30 days
     const newLast30 = contacts.filter(c => { const d = pd(c.addedAt); return d && ds(d) <= 30; }).length;
 
-    // ── 4. Contact health buckets ─────────────────────────────────────────
+    // ── 5. Contact health buckets ─────────────────────────────────────────
     const activeContacts = contacts.filter(isActive);
 
     function enrich(c) {
-      const d = pd(c.lc);
+      const d    = pd(c.lc);
       const last = interactionsFor(c)
         .filter(isRealOutreach)
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
       return {
         ...c,
-        daysSince: d ? ds(d) : null,
+        daysSince:       d ? ds(d) : null,
         lastContactDate: d ? fd(d) : "never",
-        lastNote: last?.note || c.notes || "",
-        touchCount: interactionsFor(c).filter(isRealOutreach).length,
+        lastNote:        last?.note || c.notes || "",
+        touchCount:      interactionsFor(c).filter(isRealOutreach).length,
       };
     }
 
@@ -169,7 +172,6 @@ export default async function handler(req, res) {
                    c.daysSince < GOALS.OVERDUE_DAYS)
       .sort((a, b) => b.daysSince - a.daysSince);
 
-    // Cold contacts, aged by when they were added
     const coldContacts = contacts.filter(isCold).map(c => {
       const added = pd(c.addedAt);
       return { ...c, ageDays: added ? ds(added) : null, addedDate: added ? fd(added) : "unknown" };
@@ -177,7 +179,6 @@ export default async function handler(req, res) {
 
     const coldOverAge = coldContacts.filter(c => c.ageDays !== null && c.ageDays > GOALS.COLD_MAX_AGE_DAYS);
 
-    // Newly auto-inactive this week
     const sevenDaysAgo = daysAgo(7);
     const newlyInactive = contacts.filter(c => {
       if (!isInactive(c)) return false;
@@ -186,60 +187,59 @@ export default async function handler(req, res) {
       );
     });
 
-    // ── 5. Goal scorecard ─────────────────────────────────────────────────
+    // ── 6. Goal scorecard ─────────────────────────────────────────────────
     const regionCount = contacts.filter(c => norm(c.region) === norm(GOALS.PRIORITY_REGION)).length;
     const sectorCount = contacts.filter(c => norm(c.industry).includes(norm(GOALS.PRIORITY_SECTOR))).length;
 
     const scorecard = [
       {
-        label: "Outreach this week",
-        value: thisWeekCount,
+        label:  "Outreach this week",
+        value:  thisWeekCount,
         target: GOALS.WEEKLY_OUTREACH_TARGET,
-        hit: thisWeekCount >= GOALS.WEEKLY_OUTREACH_TARGET,
+        hit:    thisWeekCount >= GOALS.WEEKLY_OUTREACH_TARGET,
         detail: trendLabel + " · 30-day avg " + weeklyAvg30 + "/wk",
       },
       {
-        label: "New contacts (30d)",
-        value: newLast30,
+        label:  "New contacts (30d)",
+        value:  newLast30,
         target: GOALS.MONTHLY_NEW_CONTACT_TARGET,
-        hit: newLast30 >= GOALS.MONTHLY_NEW_CONTACT_TARGET,
+        hit:    newLast30 >= GOALS.MONTHLY_NEW_CONTACT_TARGET,
         detail: "network total " + contacts.length,
       },
       {
-        label: GOALS.PRIORITY_REGION + " contacts",
-        value: regionCount,
+        label:  GOALS.PRIORITY_REGION + " contacts",
+        value:  regionCount,
         target: GOALS.REGION_TARGET_COUNT,
-        hit: regionCount >= GOALS.REGION_TARGET_COUNT,
+        hit:    regionCount >= GOALS.REGION_TARGET_COUNT,
         detail: pct(regionCount, GOALS.REGION_TARGET_COUNT) + "% of target",
       },
       {
-        label: GOALS.PRIORITY_SECTOR + " sector",
-        value: sectorCount,
+        label:  GOALS.PRIORITY_SECTOR + " sector",
+        value:  sectorCount,
         target: GOALS.SECTOR_TARGET_COUNT,
-        hit: sectorCount >= GOALS.SECTOR_TARGET_COUNT,
+        hit:    sectorCount >= GOALS.SECTOR_TARGET_COUNT,
         detail: pct(sectorCount, GOALS.SECTOR_TARGET_COUNT) + "% of target",
       },
       {
-        label: "Cold backlog",
-        value: coldContacts.length,
+        label:  "Cold backlog",
+        value:  coldContacts.length,
         target: GOALS.COLD_BACKLOG_CEILING,
-        hit: coldContacts.length <= GOALS.COLD_BACKLOG_CEILING,
+        hit:    coldContacts.length <= GOALS.COLD_BACKLOG_CEILING,
         detail: coldOverAge.length + " aged past " + GOALS.COLD_MAX_AGE_DAYS + "d",
         lowerIsBetter: true,
       },
     ];
 
-    // ── 6. Priority ranking — who actually deserves attention ─────────────
-    // Score blends neglect with strategic fit, so the list isn't just "oldest".
+    // ── 7. Priority ranking ───────────────────────────────────────────────
     function priorityScore(c) {
       let score = 0;
       if (c.daysSince !== null) score += c.daysSince;
-      else if (c.ageDays !== null && c.ageDays !== undefined) score += c.ageDays;
-      if (norm(c.region) === norm(GOALS.PRIORITY_REGION)) score += 40;
+      else if (c.ageDays != null) score += c.ageDays;
+      if (norm(c.region).includes(norm(GOALS.PRIORITY_REGION))) score += 40;
       if (norm(c.industry).includes(norm(GOALS.PRIORITY_SECTOR))) score += 40;
       if (GOALS.SECONDARY_SECTORS.some(s => norm(c.industry).includes(norm(s)))) score += 15;
       if (c.friend) score += 20;
-      if (c.touchCount > 2) score += 15; // warm relationships are worth protecting
+      if (c.touchCount > 2) score += 15;
       return score;
     }
 
@@ -253,27 +253,25 @@ export default async function handler(req, res) {
       .sort((a, b) => b._score - a._score)
       .slice(0, 8);
 
-    // ── 7. Recent interactions (display) ──────────────────────────────────
+    // ── 8. Recent interactions (display) ─────────────────────────────────
     const recentInteractions = realInteractions
       .filter(i => { const d = pd(i.timestamp); return d && d >= sevenDaysAgo; })
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
       .map(i => {
-        const contact = contacts.find(c =>
-          (i.id && c.id && i.id === c.id) ||
-          (norm(i.firstName) === norm(c.fn) && norm(i.lastName) === norm(c.ln))
-        ) || { fn: i.firstName, ln: i.lastName, company: "", industry: "", region: "" };
+        const contact = contacts.find(c => i.id && c.id && i.id === c.id)
+          || { fn: "", ln: "", company: "", industry: "", region: "" };
         const d = pd(i.timestamp);
         return {
           ...i,
-          contactName: (contact.fn + " " + contact.ln).trim(),
-          company: contact.company,
-          industry: contact.industry,
-          region: contact.region,
+          contactName:   (contact.fn + " " + contact.ln).trim(),
+          company:       contact.company,
+          industry:      contact.industry,
+          region:        contact.region,
           formattedDate: d ? fd(d) : "",
         };
       });
 
-    // ── 8. AI analysis ────────────────────────────────────────────────────
+    // ── 9. AI analysis ────────────────────────────────────────────────────
     const scorecardText = scorecard.map(s =>
       `- ${s.label}: ${s.value} (target ${s.lowerIsBetter ? "≤" : ""}${s.target}) — ${s.hit ? "ON TRACK" : "BEHIND"}. ${s.detail}`
     ).join("\n");
@@ -283,7 +281,7 @@ export default async function handler(req, res) {
       : topPriority.map(c => {
           const age = c.daysSince !== null
             ? `${c.daysSince} days since last contact`
-            : `cold, added ${c.ageDays !== null ? c.ageDays + " days ago" : "unknown"}, never contacted`;
+            : `cold, added ${c.ageDays != null ? c.ageDays + " days ago" : "unknown"}, never contacted`;
           return `- ${c.fn} ${c.ln} (${c.company || "no company"}, ${c.industry || "no industry"}${c.region ? ", region: " + c.region : ""}) — ${age}. ${c.touchCount} prior touches. Note: "${(c.lastNote || "none").slice(0, 200)}"`;
         }).join("\n");
 
@@ -298,8 +296,9 @@ export default async function handler(req, res) {
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
       .slice(0, 25)
       .map(i => {
-        const d = pd(i.timestamp);
-        return `- ${d ? fd(d) : "?"}: ${i.firstName} ${i.lastName} — "${i.note.slice(0, 180)}"`;
+        const contact = contacts.find(c => i.id && c.id && i.id === c.id)
+          || { fn: "", ln: "", company: "" };
+        return `- ${i.formattedDate || ""}: ${(contact.fn + " " + contact.ln).trim()} (${contact.company || "—"}) — "${i.note}"`;
       }).join("\n") || "No prior interactions in the last 90 days.";
 
     const newlyInactiveText = newlyInactive.length === 0
@@ -349,8 +348,6 @@ Exactly 5 numbered actions, ranked most important first. Each must name a specif
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        // Sonnet, not Haiku: this is genuine synthesis across 90 days of history
-        // against strategic goals. Haiku is right for field extraction, not this.
         model: "claude-sonnet-4-6",
         max_tokens: 2000,
         messages: [{ role: "user", content: aiPrompt }],
@@ -358,22 +355,19 @@ Exactly 5 numbered actions, ranked most important first. Each must name a specif
     });
 
     const aiData = await aiRes.json();
-    if (!aiRes.ok) {
-      throw new Error("Anthropic API error: " + (aiData.error?.message || aiRes.status));
-    }
+    if (!aiRes.ok) throw new Error("Anthropic API error: " + (aiData.error?.message || aiRes.status));
     const aiText = aiData.content?.[0]?.text?.trim() || "No analysis generated.";
 
-    // Split the AI response into its three sections
     function section(name, next) {
       const re = new RegExp(name + "\\s*\\n([\\s\\S]*?)(?=\\n\\s*(?:" + next + ")\\s*\\n|$)", "i");
       const m = aiText.match(re);
       return m ? m[1].trim() : "";
     }
     const assessment = section("ASSESSMENT", "PATTERNS|THIS WEEK");
-    const patterns   = section("PATTERNS", "THIS WEEK");
-    const actions    = section("THIS WEEK", "$^") || aiText;
+    const patterns   = section("PATTERNS",   "THIS WEEK");
+    const actions    = section("THIS WEEK",  "$^") || aiText;
 
-    // ── 9. Build HTML email ───────────────────────────────────────────────
+    // ── 10. Build HTML email ──────────────────────────────────────────────
     const dateStr = TODAY.toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric", year:"numeric" });
 
     function scorecardHTML() {
@@ -563,7 +557,7 @@ Exactly 5 numbered actions, ranked most important first. Each must name a specif
   </div>
 
   <div style="background:#0a2342;padding:16px 28px;text-align:center;">
-    <div style="font-size:12px;color:#8fadc8;">Networking Dashboard · Weekly Digest</div>
+    <div style="font-size:12px;color:#8fadc8;">Mahan · Weekly Digest</div>
     <div style="font-size:11px;color:#4a6a8a;margin-top:4px;">Sent every Sunday at 8:00am Brasilia time</div>
   </div>
 
@@ -571,7 +565,7 @@ Exactly 5 numbered actions, ranked most important first. Each must name a specif
 </body>
 </html>`;
 
-    // ── 10. Send via Gmail SMTP ───────────────────────────────────────────
+    // ── 11. Send via Gmail SMTP ───────────────────────────────────────────
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: { user: GMAIL_FROM, pass: GMAIL_APP_PASSWORD },
@@ -579,7 +573,7 @@ Exactly 5 numbered actions, ranked most important first. Each must name a specif
 
     const onTrack = scorecard.filter(s => s.hit).length;
     await transporter.sendMail({
-      from: `"Networking Dashboard" <${GMAIL_FROM}>`,
+      from: `"Mahan" <${GMAIL_FROM}>`,
       to: GMAIL_TO,
       subject: `📋 Weekly Digest — ${thisWeekCount}/${GOALS.WEEKLY_OUTREACH_TARGET} outreach, ${overdue.length} overdue, ${onTrack}/${scorecard.length} goals on track`,
       html,
@@ -587,10 +581,12 @@ Exactly 5 numbered actions, ranked most important first. Each must name a specif
 
     return res.status(200).json({
       success: true,
-      thisWeek: thisWeekCount,
-      overdue: overdue.length,
-      staleSoon: staleSoon.length,
-      cold: coldContacts.length,
+      thisWeek:    thisWeekCount,
+      overdue:     overdue.length,
+      staleSoon:   staleSoon.length,
+      cold:        coldContacts.length,
+      interactions: interactions.length,
+      deduped:     rawInts.length - interactions.length,
       goalsOnTrack: onTrack + "/" + scorecard.length,
       message: `Digest sent to ${GMAIL_TO}`,
     });
