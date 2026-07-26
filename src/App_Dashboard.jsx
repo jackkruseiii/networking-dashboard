@@ -905,13 +905,30 @@ export default function NetworkingDashboard({ onNewport }) {
     fetch("/api/contacts", {
       headers: { ...(credential ? { "Authorization": `Bearer ${credential}` } : {}) }
     })
-      .then(r => r.json())
+      .then(r => {
+        // If auth error, clear session and force re-login
+        if (r.status === 401 || r.status === 403) {
+          clearAuthSession();
+          setUserEmail(null);
+          setLoading(false);
+          setRefreshing(false);
+          return null;
+        }
+        return r.json();
+      })
       .then(data => {
+        if (!data) return;
         if (data.success) {
           setContacts((data.contacts || []).map(mapSupabaseRow).filter(c => c.fn || c.ln));
           setInteractions((data.interactions || []).map(mapSupabaseInteraction));
         } else {
-          setLoadError("Could not load contacts.");
+          // If error looks auth-related, clear session
+          if (data.error && (data.error.includes('401') || data.error.includes('credential') || data.error.includes('Unauthorized'))) {
+            clearAuthSession();
+            setUserEmail(null);
+          } else {
+            setLoadError("Could not load contacts.");
+          }
         }
         setLoading(false);
         setRefreshing(false);
@@ -985,7 +1002,14 @@ export default function NetworkingDashboard({ onNewport }) {
 
   if (loadError) return (
     <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
-      <div style={{ textAlign:"center", color:"#A32D2D" }}><div style={{ fontSize:24, marginBottom:12 }}>⚠️</div><div style={{ fontSize:14 }}>{loadError}</div></div>
+      <div style={{ textAlign:"center", color:"#A32D2D" }}>
+        <div style={{ fontSize:24, marginBottom:12 }}>⚠️</div>
+        <div style={{ fontSize:14, marginBottom:16 }}>{loadError}</div>
+        <button onClick={() => { clearAuthSession(); setUserEmail(null); setLoadError(null); }}
+          style={{ fontSize:13, padding:"8px 18px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer" }}>
+          Sign in again
+        </button>
+      </div>
     </div>
   );
 
