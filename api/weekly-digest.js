@@ -307,6 +307,15 @@ export default async function handler(req, res) {
 
     const aiPrompt = `You are the strategic advisor reviewing weekly networking activity for Jack Kruse, a Navy Captain (O-6) and Military Group Chief at the U.S. Embassy Brazil. He retires to the ${GOALS.PRIORITY_REGION} area in ${GOALS.TRANSITION_YEAR}. His primary sector interest is ${GOALS.PRIORITY_SECTOR}; secondary interests include ${GOALS.SECONDARY_SECTORS.join(", ")}. He is based in Brazil, so all outreach is remote (LinkedIn messages, video calls) — never suggest in-person meetings or coffee.
 
+CRITICAL TRANSITION TIMELINE CONTEXT — read this before making any recommendations:
+- It is currently ${TODAY.toLocaleDateString("en-US", { month:"long", year:"numeric" })}. Jack is ${GOALS.TRANSITION_YEAR - TODAY.getFullYear()} years from retirement.
+- He PCSs to Newport, RI in summer 2027 for a final one-year teaching tour, then retires to DFW in summer 2028.
+- At this stage (2+ years out), the right posture is STRATEGIC RELATIONSHIP MAINTENANCE — not aggressive activation. Contacts who have offered future introductions or help "when the time gets closer" are NOT stalling. They are appropriately parked for activation in 2027-2028.
+- Do NOT flag contacts as neglected if their notes indicate they are intentionally on a slow burn, offered help for a future date, or are DFW-specific contacts that make more sense to activate closer to his 2028 arrival.
+- The goal right now is: (1) keep existing warm relationships warm with light periodic touches, (2) build new relationships in education and defense sectors, (3) gather market intelligence through informational calls. It is NOT to aggressively pursue job leads or activate every contact immediately.
+- Flag as genuinely urgent ONLY: contacts who made specific time-sensitive offers, contacts whose own circumstances are changing (retiring, changing roles), and contacts who explicitly asked for a follow-up that hasn't happened.
+- Be a strategic advisor who understands a 2-year arc, not a sales manager chasing weekly activity numbers.
+
 GOAL SCORECARD (current standing):
 ${scorecardText}
 
