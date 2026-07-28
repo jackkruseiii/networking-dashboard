@@ -32,16 +32,28 @@ export default async function handler(req, res) {
     const { type, data } = req.body;
 
     if (type === "note") {
-      const { error } = await supabase
+      const timestamp = data.timestamp || new Date().toISOString();
+
+      // Insert the interaction note
+      const { error: noteError } = await supabase
         .from("interactions")
         .insert({
           user_email: email,
           contact_id: data.id,
           note:       data.note || "",
-          created_at: data.timestamp || new Date().toISOString(),
+          created_at: timestamp,
         });
-      if (error) throw error;
-      return res.status(200).json({ success: true, message: "Note logged" });
+      if (noteError) throw noteError;
+
+      // Auto-update last_checkin on the contact to match
+      const { error: updateError } = await supabase
+        .from("contacts")
+        .update({ last_checkin: timestamp })
+        .eq("id", data.id)
+        .eq("user_email", email);
+      if (updateError) throw updateError;
+
+      return res.status(200).json({ success: true, message: "Note logged and last check-in updated" });
     }
 
     if (type === "new_contact") {
