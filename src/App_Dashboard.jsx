@@ -30,9 +30,9 @@ function readAuthSession() {
   } catch { return null; }
 }
 
-function writeAuthSession(email, credential) {
+function writeAuthSession(email, credential, onboardingComplete) {
   try {
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ email, credential, ts: Date.now() }));
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ email, credential, onboardingComplete, ts: Date.now() }));
   } catch {}
 }
 
@@ -310,8 +310,8 @@ function GoogleSignInGate({ onUnlock }) {
       });
       const data = await res.json();
       if (data.success) {
-        writeAuthSession(data.email, response.credential);
-        onUnlock(data.email);
+        writeAuthSession(data.email, response.credential, data.onboardingComplete);
+        onUnlock(data.email, data.onboardingComplete);
       } else {
         setError(data.error || "This Google account isn't authorized for this app.");
       }
@@ -869,12 +869,374 @@ function NewContactModal({ onClose, onAdd }) {
   );
 }
 
+// ─── Settings API helpers ─────────────────────────────────────────────────
+async function fetchSettings() {
+  const credential = getStoredCredential();
+  const res = await fetch("/api/settings", {
+    headers: { ...(credential ? { "Authorization": `Bearer ${credential}` } : {}) }
+  });
+  const data = await res.json();
+  return data.settings || null;
+}
+
+async function saveSettings(updates) {
+  const credential = getStoredCredential();
+  const res = await fetch("/api/settings", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(credential ? { "Authorization": `Bearer ${credential}` } : {}),
+    },
+    body: JSON.stringify(updates),
+  });
+  return res.ok;
+}
+
+// ─── Onboarding wizard ────────────────────────────────────────────────────
+function OnboardingWizard({ email, onComplete }) {
+  const [step,   setStep]   = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [form,   setForm]   = useState({
+    display_name:             "",
+    transition_year:          2028,
+    priority_region:          "DFW",
+    priority_sector:          "Education",
+    secondary_sectors:        ["Defense","Consulting","Government","Energy","Nonprofit"],
+    weekly_outreach_target:   5,
+    monthly_new_contact_target: 8,
+    region_target_count:      100,
+    sector_target_count:      40,
+    overdue_days:             90,
+    stale_soon_days:          60,
+    cold_max_age_days:        30,
+    cold_backlog_ceiling:     10,
+    digest_email:             email,
+    digest_enabled:           true,
+  });
+
+  function set(k, v) { setForm(p => ({ ...p, [k]: v })); }
+
+  const steps = [
+    {
+      title: "Welcome to Mahan",
+      subtitle: "Let's set up your account in a few quick steps.",
+      content: (
+        <div>
+          <div style={{ marginBottom:16 }}>
+            <label style={modalLbl}>Your name</label>
+            <input value={form.display_name} onChange={e => set("display_name", e.target.value)}
+              placeholder="Jack" style={modalInp} />
+          </div>
+          <div>
+            <label style={modalLbl}>Digest email address</label>
+            <input type="email" value={form.digest_email} onChange={e => set("digest_email", e.target.value)}
+              placeholder="you@gmail.com" style={modalInp} />
+            <div style={{ fontSize:11, color:"#999", marginTop:4 }}>Where your Sunday digest gets sent</div>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "Your transition timeline",
+      subtitle: "When and where are you heading?",
+      content: (
+        <div>
+          <div style={{ marginBottom:16 }}>
+            <label style={modalLbl}>Target retirement / transition year</label>
+            <input type="number" value={form.transition_year} onChange={e => set("transition_year", parseInt(e.target.value))}
+              min={2024} max={2040} style={modalInp} />
+          </div>
+          <div>
+            <label style={modalLbl}>Target region (city / metro area)</label>
+            <input value={form.priority_region} onChange={e => set("priority_region", e.target.value)}
+              placeholder="DFW, DC, Austin…" style={modalInp} />
+            <div style={{ fontSize:11, color:"#999", marginTop:4 }}>Your contacts in this region get priority weighting</div>
+          </div>
+          <div style={{ marginTop:16 }}>
+            <label style={modalLbl}>Region contact target</label>
+            <input type="number" value={form.region_target_count} onChange={e => set("region_target_count", parseInt(e.target.value))}
+              style={modalInp} />
+            <div style={{ fontSize:11, color:"#999", marginTop:4 }}>How many contacts you want in your target region by transition</div>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "Your target sector",
+      subtitle: "What kind of work are you heading toward?",
+      content: (
+        <div>
+          <div style={{ marginBottom:16 }}>
+            <label style={modalLbl}>Primary sector</label>
+            <input value={form.priority_sector} onChange={e => set("priority_sector", e.target.value)}
+              placeholder="Education, Defense, Government…" style={modalInp} />
+          </div>
+          <div style={{ marginBottom:16 }}>
+            <label style={modalLbl}>Secondary sectors (comma separated)</label>
+            <input value={form.secondary_sectors.join(", ")}
+              onChange={e => set("secondary_sectors", e.target.value.split(",").map(s => s.trim()).filter(Boolean))}
+              placeholder="Defense, Consulting, Government" style={modalInp} />
+          </div>
+          <div>
+            <label style={modalLbl}>Sector contact target</label>
+            <input type="number" value={form.sector_target_count} onChange={e => set("sector_target_count", parseInt(e.target.value))}
+              style={modalInp} />
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "Outreach goals",
+      subtitle: "Set your weekly networking targets.",
+      content: (
+        <div>
+          <div style={{ marginBottom:16 }}>
+            <label style={modalLbl}>Weekly outreach target (interactions per week)</label>
+            <input type="number" value={form.weekly_outreach_target} onChange={e => set("weekly_outreach_target", parseInt(e.target.value))}
+              min={1} max={50} style={modalInp} />
+          </div>
+          <div style={{ marginBottom:16 }}>
+            <label style={modalLbl}>Monthly new contacts target</label>
+            <input type="number" value={form.monthly_new_contact_target} onChange={e => set("monthly_new_contact_target", parseInt(e.target.value))}
+              min={0} max={100} style={modalInp} />
+          </div>
+          <div style={{ marginBottom:16 }}>
+            <label style={modalLbl}>Overdue threshold (days without contact)</label>
+            <input type="number" value={form.overdue_days} onChange={e => set("overdue_days", parseInt(e.target.value))}
+              min={7} max={365} style={modalInp} />
+          </div>
+          <div>
+            <label style={modalLbl}>Early warning threshold (days)</label>
+            <input type="number" value={form.stale_soon_days} onChange={e => set("stale_soon_days", parseInt(e.target.value))}
+              min={7} max={365} style={modalInp} />
+            <div style={{ fontSize:11, color:"#999", marginTop:4 }}>Contacts approaching overdue get flagged at this point</div>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "You're all set",
+      subtitle: "Your digest will be personalized to these goals every Sunday.",
+      content: (
+        <div style={{ background:"#f9f9f7", borderRadius:10, padding:"16px 18px" }}>
+          {[
+            ["Name", form.display_name || "—"],
+            ["Digest email", form.digest_email],
+            ["Transition year", form.transition_year],
+            ["Target region", form.priority_region + " (target: " + form.region_target_count + " contacts)"],
+            ["Primary sector", form.priority_sector + " (target: " + form.sector_target_count + " contacts)"],
+            ["Weekly outreach target", form.weekly_outreach_target + " interactions/week"],
+            ["Overdue threshold", form.overdue_days + " days"],
+          ].map(([label, value]) => (
+            <div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:"0.5px solid #e8e8e4", fontSize:13 }}>
+              <span style={{ color:"#999" }}>{label}</span>
+              <span style={{ fontWeight:500, color:"#1a1a18" }}>{value}</span>
+            </div>
+          ))}
+        </div>
+      )
+    },
+  ];
+
+  async function finish() {
+    setSaving(true);
+    await saveSettings({ ...form, onboarding_complete: true });
+    setSaving(false);
+    // Update localStorage session
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ ...parsed, onboardingComplete: true }));
+    }
+    onComplete(form);
+  }
+
+  const current = steps[step];
+  const isLast  = step === steps.length - 1;
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif", padding:16 }}>
+      <div style={{ background:"#fff", borderRadius:16, border:"0.5px solid #e0e0de", width:"min(520px,100%)", overflow:"hidden" }}>
+        <div style={{ background:"#0a2342", padding:"24px 28px" }}>
+          <div style={{ fontSize:11, color:"#c9a84c", letterSpacing:".12em", textTransform:"uppercase", marginBottom:6 }}>Mahan · Setup</div>
+          <div style={{ fontSize:20, fontWeight:700, color:"#fff", marginBottom:4 }}>{current.title}</div>
+          <div style={{ fontSize:13, color:"#8fadc8" }}>{current.subtitle}</div>
+          <div style={{ display:"flex", gap:6, marginTop:16 }}>
+            {steps.map((_, i) => (
+              <div key={i} style={{ height:3, flex:1, borderRadius:2, background: i <= step ? "#c9a84c" : "rgba(255,255,255,.2)" }} />
+            ))}
+          </div>
+        </div>
+        <div style={{ padding:"24px 28px" }}>
+          {current.content}
+          <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:24, paddingTop:16, borderTop:"0.5px solid #eee" }}>
+            {step > 0 && (
+              <button onClick={() => setStep(s => s-1)}
+                style={{ fontSize:13, padding:"8px 16px", borderRadius:8, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>
+                Back
+              </button>
+            )}
+            {!isLast && (
+              <button onClick={() => setStep(s => s+1)}
+                style={{ fontSize:13, fontWeight:600, padding:"8px 20px", borderRadius:8, border:"none", background:"#0a2342", color:"#fff", cursor:"pointer" }}>
+                Next
+              </button>
+            )}
+            {isLast && (
+              <button onClick={finish} disabled={saving}
+                style={{ fontSize:13, fontWeight:600, padding:"8px 20px", borderRadius:8, border:"none", background:"#2e7d4f", color:"#fff", cursor:"pointer" }}>
+                {saving ? "Saving…" : "Get started →"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Settings panel ───────────────────────────────────────────────────────
+function SettingsPanel({ settings, onClose, onSaved }) {
+  const [form,   setForm]   = useState({ ...settings });
+  const [saving, setSaving] = useState(false);
+  const [saved,  setSaved]  = useState(false);
+
+  function set(k, v) { setForm(p => ({ ...p, [k]: v })); }
+
+  async function handleSave() {
+    setSaving(true);
+    await saveSettings(form);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+    onSaved(form);
+  }
+
+  const sectionStyle = { marginBottom:24 };
+  const headStyle = { fontSize:11, fontWeight:600, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12, paddingBottom:8, borderBottom:"0.5px solid #eee" };
+
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:16, border:"0.5px solid #e0e0de", width:"min(560px,100%)", maxHeight:"90vh", overflowY:"auto", padding:24 }}>
+
+        <div style={{ display:"flex", alignItems:"center", marginBottom:24 }}>
+          <div>
+            <div style={{ fontSize:19, fontWeight:600 }}>Digest Settings</div>
+            <div style={{ fontSize:13, color:"#777", marginTop:2 }}>Customize your weekly briefing</div>
+          </div>
+          <button onClick={onClose} style={{ marginLeft:"auto", background:"transparent", border:"0.5px solid #ccc", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:"#666" }}>✕</button>
+        </div>
+
+        <div style={sectionStyle}>
+          <div style={headStyle}>Account</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <div>
+              <label style={detailLbl}>Display name</label>
+              <input value={form.display_name||""} onChange={e => set("display_name", e.target.value)} style={detailInp} />
+            </div>
+            <div>
+              <label style={detailLbl}>Digest email</label>
+              <input type="email" value={form.digest_email||""} onChange={e => set("digest_email", e.target.value)} style={detailInp} />
+            </div>
+          </div>
+          <div style={{ marginTop:10, display:"flex", alignItems:"center", gap:10 }}>
+            <label style={{ fontSize:13, color:"#555" }}>Weekly digest enabled</label>
+            <button onClick={() => set("digest_enabled", !form.digest_enabled)}
+              style={{ padding:"4px 12px", borderRadius:20, border:`1.5px solid ${form.digest_enabled?"#2e7d4f":"#ccc"}`, background:form.digest_enabled?"#EAF3DE":"#fff", color:form.digest_enabled?"#2e7d4f":"#888", fontSize:12, fontWeight:600, cursor:"pointer" }}>
+              {form.digest_enabled ? "On" : "Off"}
+            </button>
+          </div>
+        </div>
+
+        <div style={sectionStyle}>
+          <div style={headStyle}>Transition timeline</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <div>
+              <label style={detailLbl}>Transition year</label>
+              <input type="number" value={form.transition_year||2028} onChange={e => set("transition_year", parseInt(e.target.value))} style={detailInp} />
+            </div>
+            <div>
+              <label style={detailLbl}>Target region</label>
+              <input value={form.priority_region||""} onChange={e => set("priority_region", e.target.value)} style={detailInp} />
+            </div>
+            <div>
+              <label style={detailLbl}>Region contact target</label>
+              <input type="number" value={form.region_target_count||100} onChange={e => set("region_target_count", parseInt(e.target.value))} style={detailInp} />
+            </div>
+          </div>
+        </div>
+
+        <div style={sectionStyle}>
+          <div style={headStyle}>Target sector</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <div>
+              <label style={detailLbl}>Primary sector</label>
+              <input value={form.priority_sector||""} onChange={e => set("priority_sector", e.target.value)} style={detailInp} />
+            </div>
+            <div>
+              <label style={detailLbl}>Sector contact target</label>
+              <input type="number" value={form.sector_target_count||40} onChange={e => set("sector_target_count", parseInt(e.target.value))} style={detailInp} />
+            </div>
+            <div style={{ gridColumn:"1/-1" }}>
+              <label style={detailLbl}>Secondary sectors (comma separated)</label>
+              <input value={(form.secondary_sectors||[]).join(", ")}
+                onChange={e => set("secondary_sectors", e.target.value.split(",").map(s => s.trim()).filter(Boolean))}
+                style={detailInp} />
+            </div>
+          </div>
+        </div>
+
+        <div style={sectionStyle}>
+          <div style={headStyle}>Outreach goals</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <div>
+              <label style={detailLbl}>Weekly outreach target</label>
+              <input type="number" value={form.weekly_outreach_target||5} onChange={e => set("weekly_outreach_target", parseInt(e.target.value))} style={detailInp} />
+            </div>
+            <div>
+              <label style={detailLbl}>Monthly new contacts target</label>
+              <input type="number" value={form.monthly_new_contact_target||8} onChange={e => set("monthly_new_contact_target", parseInt(e.target.value))} style={detailInp} />
+            </div>
+            <div>
+              <label style={detailLbl}>Overdue threshold (days)</label>
+              <input type="number" value={form.overdue_days||90} onChange={e => set("overdue_days", parseInt(e.target.value))} style={detailInp} />
+            </div>
+            <div>
+              <label style={detailLbl}>Early warning threshold (days)</label>
+              <input type="number" value={form.stale_soon_days||60} onChange={e => set("stale_soon_days", parseInt(e.target.value))} style={detailInp} />
+            </div>
+            <div>
+              <label style={detailLbl}>Cold max age (days)</label>
+              <input type="number" value={form.cold_max_age_days||30} onChange={e => set("cold_max_age_days", parseInt(e.target.value))} style={detailInp} />
+            </div>
+            <div>
+              <label style={detailLbl}>Cold backlog ceiling</label>
+              <input type="number" value={form.cold_backlog_ceiling||10} onChange={e => set("cold_backlog_ceiling", parseInt(e.target.value))} style={detailInp} />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", paddingTop:12, borderTop:"0.5px solid #eee" }}>
+          <button onClick={onClose} style={{ fontSize:13, padding:"8px 16px", borderRadius:8, border:"0.5px solid #ccc", background:"transparent", color:"#555", cursor:"pointer" }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving}
+            style={{ fontSize:13, fontWeight:600, padding:"8px 20px", borderRadius:8, border:"none", background:"#0a2342", color:"#fff", cursor:"pointer" }}>
+            {saving ? "Saving…" : saved ? "✓ Saved" : "Save settings"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main dashboard ───────────────────────────────────────────────────────
 export default function NetworkingDashboard({ onNewport }) {
   const width    = useWindowWidth();
   const isMobile = width < 640;
-  const [collapsed,       setCollapsed]       = useState({cold:false, overdue:false, active:false});
-  const [userEmail,       setUserEmail]       = useState(null);
+  const [collapsed,        setCollapsed]        = useState({cold:false, overdue:false, active:false});
+  const [userEmail,        setUserEmail]        = useState(null);
+  const [showOnboarding,   setShowOnboarding]   = useState(false);
+  const [userSettings,     setUserSettings]     = useState(null);
+  const [showSettings,     setShowSettings]     = useState(false);
   const unlocked = !!userEmail;
   const [contacts,        setContacts]        = useState([]);
   const [interactions,    setInteractions]    = useState([]);
@@ -891,12 +1253,29 @@ export default function NetworkingDashboard({ onNewport }) {
 
   useEffect(() => {
     const session = readAuthSession();
-    if (session) setUserEmail(session.email);
+    if (session) {
+      setUserEmail(session.email);
+      if (session.onboardingComplete === false) {
+        setShowOnboarding(true);
+      }
+    }
   }, []);
+
+  useEffect(() => {
+    if (!userEmail || showOnboarding) return;
+    fetchSettings().then(s => { if (s) setUserSettings(s); });
+  }, [userEmail, showOnboarding]);
 
   function handleSignOut() {
     clearAuthSession();
     setUserEmail(null);
+    setUserSettings(null);
+    setShowOnboarding(false);
+  }
+
+  function handleUnlock(email, onboardingComplete) {
+    setUserEmail(email);
+    if (onboardingComplete === false) setShowOnboarding(true);
   }
 
   function fetchData(isRefresh = false) {
@@ -992,7 +1371,14 @@ export default function NetworkingDashboard({ onNewport }) {
     inactive: { background:"#F0F0EE", color:"#777"    },
   };
 
-  if (!unlocked) return <GoogleSignInGate onUnlock={email => setUserEmail(email)} />;
+  if (!unlocked) return <GoogleSignInGate onUnlock={handleUnlock} />;
+
+  if (showOnboarding) return (
+    <OnboardingWizard email={userEmail} onComplete={settings => {
+      setUserSettings(settings);
+      setShowOnboarding(false);
+    }} />
+  );
 
   if (loading) return (
     <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
@@ -1055,9 +1441,17 @@ export default function NetworkingDashboard({ onNewport }) {
           style={{ fontSize:13, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#555", cursor:"pointer" }}>
           {refreshing ? "⏳" : "🔄"}
         </button>
- 
+        {onNewport && (
+          <button onClick={onNewport} style={{ fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#0a2342", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
+            ⚓ Newport Intel
+          </button>
+        )}
         <button onClick={() => setShowNew(true)} style={{ fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
           + New contact
+        </button>
+        <button onClick={() => setShowSettings(true)} title="Settings"
+          style={{ fontSize:13, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#555", cursor:"pointer" }}>
+          ⚙️
         </button>
         <button onClick={handleSignOut} title={userEmail || "Sign out"}
           style={{ fontSize:12, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#999", cursor:"pointer", whiteSpace:"nowrap" }}>
@@ -1141,6 +1535,14 @@ export default function NetworkingDashboard({ onNewport }) {
 
       {showNew && (
         <NewContactModal onClose={() => setShowNew(false)} onAdd={c => setContacts(p => [...p, c])} />
+      )}
+
+      {showSettings && userSettings && (
+        <SettingsPanel
+          settings={userSettings}
+          onClose={() => setShowSettings(false)}
+          onSaved={updated => { setUserSettings(updated); setShowSettings(false); }}
+        />
       )}
     </div>
   );
