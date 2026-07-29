@@ -38,27 +38,80 @@ export default async function handler(req, res) {
     ANTHROPIC_API_KEY,
     GMAIL_FROM,
     GMAIL_APP_PASSWORD,
-    GMAIL_TO,
   } = process.env;
 
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !ANTHROPIC_API_KEY || !GMAIL_FROM || !GMAIL_APP_PASSWORD || !GMAIL_TO) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !ANTHROPIC_API_KEY || !GMAIL_FROM || !GMAIL_APP_PASSWORD) {
     return res.status(500).json({ error: "Missing required environment variables" });
   }
 
   try {
-    // ── 1. Fetch data from Supabase ────────────────────────────────────────
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // ── Fetch all users with digest enabled ──────────────────────────────
+    const { data: allUsers, error: usersError } = await supabase
+      .from("user_settings")
+      .select("*")
+      .eq("digest_enabled", true)
+      .eq("onboarding_complete", true);
+
+    if (usersError) throw new Error("Users fetch error: " + usersError.message);
+    if (!allUsers || allUsers.length === 0) {
+      return res.status(200).json({ success: true, message: "No users with digest enabled" });
+    }
+
+    const results = [];
+
+    // ── Send digest for each user ────────────────────────────────────────
+    for (const userSettings of allUsers) {
+      try {
+        await sendDigestForUser(supabase, userSettings, ANTHROPIC_API_KEY, GMAIL_FROM, GMAIL_APP_PASSWORD);
+        results.push({ email: userSettings.user_email, status: "sent" });
+      } catch (err) {
+        console.error(`Digest error for ${userSettings.user_email}:`, err);
+        results.push({ email: userSettings.user_email, status: "error", error: err.message });
+      }
+    }
+
+    return res.status(200).json({ success: true, results });
+
+  } catch (err) {
+    console.error("Weekly digest error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+async function sendDigestForUser(supabase, userSettings, ANTHROPIC_API_KEY, GMAIL_FROM, GMAIL_APP_PASSWORD) {
+  const email = userSettings.user_email;
+
+  // Build GOALS from user settings
+  const GOALS = {
+    WEEKLY_OUTREACH_TARGET:     userSettings.weekly_outreach_target    || 5,
+    MONTHLY_NEW_CONTACT_TARGET: userSettings.monthly_new_contact_target || 8,
+    COLD_MAX_AGE_DAYS:          userSettings.cold_max_age_days          || 30,
+    COLD_BACKLOG_CEILING:       userSettings.cold_backlog_ceiling        || 10,
+    OVERDUE_DAYS:               userSettings.overdue_days               || 90,
+    STALE_SOON_DAYS:            userSettings.stale_soon_days            || 60,
+    PRIORITY_REGION:            userSettings.priority_region            || "DFW",
+    REGION_TARGET_COUNT:        userSettings.region_target_count        || 100,
+    PRIORITY_SECTOR:            userSettings.priority_sector            || "Education",
+    SECONDARY_SECTORS:          userSettings.secondary_sectors          || ["Defense","Consulting","Government"],
+    SECTOR_TARGET_COUNT:        userSettings.sector_target_count        || 40,
+    TRANSITION_YEAR:            userSettings.transition_year            || 2028,
+    DIGEST_TO:                  userSettings.digest_email               || email,
+    DISPLAY_NAME:               userSettings.display_name              || email.split("@")[0],
+  };
+
+    // ── 1. Fetch data from Supabase ────────────────────────────────────────
     const { data: rawContacts, error: ce } = await supabase
       .from("contacts")
       .select("*")
-      .eq("user_email", USER_EMAIL);
+      .eq("user_email", email);
     if (ce) throw new Error("Contacts fetch error: " + ce.message);
 
     const { data: rawInteractions, error: ie } = await supabase
       .from("interactions")
       .select("*")
-      .eq("user_email", USER_EMAIL)
+      .eq("user_email", email)
       .order("created_at", { ascending: false });
     if (ie) throw new Error("Interactions fetch error: " + ie.message);
 
@@ -305,16 +358,14 @@ export default async function handler(req, res) {
       ? "None this week."
       : newlyInactive.map(c => `- ${c.fn} ${c.ln} (${c.company}) — auto-moved to Inactive after 180+ days`).join("\n");
 
-    const aiPrompt = `You are the strategic advisor reviewing weekly networking activity for Jack Kruse, a Navy Captain (O-6) and Military Group Chief at the U.S. Embassy Brazil. He retires to the ${GOALS.PRIORITY_REGION} area in ${GOALS.TRANSITION_YEAR}. His primary sector interest is ${GOALS.PRIORITY_SECTOR}; secondary interests include ${GOALS.SECONDARY_SECTORS.join(", ")}. He is based in Brazil, so all outreach is remote (LinkedIn messages, video calls) — never suggest in-person meetings or coffee.
+    const aiPrompt = `You are the strategic advisor reviewing weekly networking activity for ${GOALS.DISPLAY_NAME}, a military officer transitioning to civilian life. They are targeting the ${GOALS.PRIORITY_REGION} area in ${GOALS.TRANSITION_YEAR}. Primary sector interest: ${GOALS.PRIORITY_SECTOR}. Secondary interests: ${GOALS.SECONDARY_SECTORS.join(", ")}. All outreach is remote — never suggest in-person meetings or coffee.
 
 CRITICAL TRANSITION TIMELINE CONTEXT — read this before making any recommendations:
-- It is currently ${TODAY.toLocaleDateString("en-US", { month:"long", year:"numeric" })}. Jack is ${GOALS.TRANSITION_YEAR - TODAY.getFullYear()} years from retirement.
-- He PCSs to Newport, RI in summer 2027 for a final one-year teaching tour, then retires to DFW in summer 2028.
-- At this stage (2+ years out), the right posture is STRATEGIC RELATIONSHIP MAINTENANCE — not aggressive activation. Contacts who have offered future introductions or help "when the time gets closer" are NOT stalling. They are appropriately parked for activation in 2027-2028.
-- Do NOT flag contacts as neglected if their notes indicate they are intentionally on a slow burn, offered help for a future date, or are DFW-specific contacts that make more sense to activate closer to his 2028 arrival.
-- The goal right now is: (1) keep existing warm relationships warm with light periodic touches, (2) build new relationships in education and defense sectors, (3) gather market intelligence through informational calls. It is NOT to aggressively pursue job leads or activate every contact immediately.
-- Flag as genuinely urgent ONLY: contacts who made specific time-sensitive offers, contacts whose own circumstances are changing (retiring, changing roles), and contacts who explicitly asked for a follow-up that hasn't happened.
-- Be a strategic advisor who understands a 2-year arc, not a sales manager chasing weekly activity numbers.
+- It is currently ${TODAY.toLocaleDateString("en-US", { month:"long", year:"numeric" })}. This person is ${GOALS.TRANSITION_YEAR - TODAY.getFullYear()} years from their transition year.
+- At this stage, the right posture depends on time remaining. If 2+ years out: STRATEGIC RELATIONSHIP MAINTENANCE — not aggressive activation. Contacts who have offered future help are intentionally parked, not stalling.
+- Do NOT flag contacts as neglected if their notes indicate they are intentionally on a slow burn or offered help for a future date.
+- Flag as genuinely urgent ONLY: contacts who made specific time-sensitive offers, contacts whose circumstances are changing, and contacts who explicitly requested a follow-up that hasn't happened.
+- Be a strategic advisor who understands the full transition arc, not a sales manager chasing weekly numbers.
 
 GOAL SCORECARD (current standing):
 ${scorecardText}
@@ -583,25 +634,8 @@ Exactly 5 numbered actions, ranked most important first. Each must name a specif
     const onTrack = scorecard.filter(s => s.hit).length;
     await transporter.sendMail({
       from: `"Mahan" <${GMAIL_FROM}>`,
-      to: GMAIL_TO,
+      to: GOALS.DIGEST_TO,
       subject: `📋 Weekly Digest — ${thisWeekCount}/${GOALS.WEEKLY_OUTREACH_TARGET} outreach, ${overdue.length} overdue, ${onTrack}/${scorecard.length} goals on track`,
       html,
     });
-
-    return res.status(200).json({
-      success: true,
-      thisWeek:    thisWeekCount,
-      overdue:     overdue.length,
-      staleSoon:   staleSoon.length,
-      cold:        coldContacts.length,
-      interactions: interactions.length,
-      deduped:     rawInts.length - interactions.length,
-      goalsOnTrack: onTrack + "/" + scorecard.length,
-      message: `Digest sent to ${GMAIL_TO}`,
-    });
-
-  } catch (err) {
-    console.error("Weekly digest error:", err);
-    return res.status(500).json({ error: err.message });
-  }
 }
