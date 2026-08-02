@@ -1,5 +1,15 @@
 import { useState } from "react";
 
+const AUTH_STORAGE_KEY = "crm_auth_session";
+
+function getStoredCredential() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw).credential || null;
+  } catch { return null; }
+}
+
 const CATEGORIES = [
   { id: "news",       label: "Local News",      icon: "📰" },
   { id: "politics",   label: "Politics & Gov",  icon: "🏛️" },
@@ -24,9 +34,13 @@ export default function NewportDigest({ onBack }) {
     const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
     try {
+      const credential = getStoredCredential();
       const res = await fetch("/api/newport", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(credential ? { "Authorization": `Bearer ${credential}` } : {}),
+        },
         body: JSON.stringify({ userPrompt: `Generate Newport RI digest for ${today}` }),
       });
       const data = await res.json();
