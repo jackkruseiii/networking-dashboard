@@ -32,6 +32,22 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // ── Auth gate ────────────────────────────────────────────────────────
+  // Vercel cron automatically sends  Authorization: Bearer <CRON_SECRET>
+  // when a CRON_SECRET env var is set. For manual browser testing, append
+  // ?key=<CRON_SECRET> to the URL. Fails closed if CRON_SECRET is missing.
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return res.status(500).json({ error: "CRON_SECRET is not configured. Set it in Vercel env vars." });
+  }
+  const headerAuth = (req.headers.authorization || "").replace("Bearer ", "");
+  const queryKey = (req.query && req.query.key) || "";
+  if (headerAuth !== cronSecret && queryKey !== cronSecret) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const {
+
   const {
     SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY,
