@@ -1,9 +1,31 @@
+import { OAuth2Client } from "google-auth-library";
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+async function verifyGoogle(credential) {
+  const ticket = await googleClient.verifyIdToken({
+    idToken: credential,
+    audience: process.env.GOOGLE_CLIENT_ID,
+  });
+  const payload = ticket.getPayload();
+  if (!payload.email_verified) throw new Error("Email not verified");
+  return payload.email.toLowerCase();
+}
+
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const allowedOrigins = ["https://usemahan.com", "https://www.usemahan.com"];
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  const credential = (req.headers.authorization || "").replace("Bearer ", "");
+  if (!credential) return res.status(401).json({ error: "No credential" });
 
   const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
   if (!ANTHROPIC_API_KEY) {
@@ -83,6 +105,9 @@ Return ONLY this JSON, no markdown, no preamble, no code fences:
 {"date":"Week of [date]","topline":"one sentence summary of most important thing happening in Newport this week","categories":{"news":{"headline":"...","bullets":["...","...","..."],"sources":["domain.com"],"sowhat":"..."},"politics":{"headline":"...","bullets":["...","...","..."],"sources":["domain.com"],"sowhat":"..."},"schools":{"headline":"...","bullets":["...","...","..."],"sources":["domain.com"],"sowhat":"..."},"activities":{"headline":"...","bullets":["...","...","..."],"sources":["domain.com"],"sowhat":"..."},"qol":{"headline":"...","bullets":["...","...","..."],"sources":["domain.com"],"sowhat":"..."},"military":{"headline":"...","bullets":["...","...","..."],"sources":["domain.com"],"sowhat":"..."}}}`;
 
   try {
+    // Reject anyone without a valid Google sign-in before spending API credits.
+    await verifyGoogle(credential);
+
     const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
     // Call 1: Main digest
