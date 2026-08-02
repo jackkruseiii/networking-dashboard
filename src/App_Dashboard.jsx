@@ -167,9 +167,13 @@ LINKEDIN MESSAGE RULES:
     "Write the LinkedIn message now. No subject line. Start directly with their first name."
   ].join("\n");
 
+ const credential = getStoredCredential();
   const response = await fetch("/api/draft", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(credential ? { "Authorization": `Bearer ${credential}` } : {}),
+    },
     body: JSON.stringify({ systemPrompt, userPrompt }),
   });
 
@@ -203,9 +207,13 @@ Rules:
 
   const userPrompt = "Extract contact info from this LinkedIn profile text:\n\n" + pastedText;
 
+ const credential = getStoredCredential();
   const response = await fetch("/api/draft", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(credential ? { "Authorization": `Bearer ${credential}` } : {}),
+    },
     body: JSON.stringify({ systemPrompt, userPrompt }),
   });
 
