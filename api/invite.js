@@ -54,7 +54,32 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: "Not authorized to send invites" });
   }
 
-  const { email, version } = req.body || {};
+  const { action, email, version } = req.body || {};
+
+  // LIST — return everyone with an invite row (for the admin panel)
+  if (action === "list") {
+    const { data, error } = await supabase
+      .from("invites")
+      .select("email, status, invited_by, accepted_at")
+      .order("email", { ascending: true });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ success: true, invites: data || [] });
+  }
+
+  // REVOKE / APPROVE — flip status without sending an email
+  if (action === "revoke" || action === "approve") {
+    if (!email) return res.status(400).json({ error: "Missing email" });
+    const who = String(email).trim().toLowerCase();
+    const newStatus = action === "revoke" ? "revoked" : "approved";
+    const { error } = await supabase
+      .from("invites")
+      .update({ status: newStatus })
+      .eq("email", who);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ success: true, message: `${who} ${action === "revoke" ? "revoked" : "re-approved"}.` });
+  }
+
+  // default action: SEND (create/approve + email)
   if (!email) return res.status(400).json({ error: "Missing email" });
   const target = String(email).trim().toLowerCase();
   const v = (version === "professional" || version === "pro") ? "professional" : "personal";
