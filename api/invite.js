@@ -1,7 +1,9 @@
 // api/invite.js
 // Called manually to send an invite email to a new user.
 // The invites row must already exist in Supabase with status: approved.
-// POST with { email: "their@email.com" }
+// POST with { email: "their@email.com", version: "personal" | "professional" }
+//   - version defaults to "personal" (includes the sailing joke, for people who know you well)
+//   - "professional" drops the joke, for professional acquaintances
 // Secured by requiring the ADMIN_SECRET env var in the Authorization header.
 
 import nodemailer from "nodemailer";
@@ -30,8 +32,11 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { email } = req.body || {};
+  const { email, version } = req.body || {};
   if (!email) return res.status(400).json({ error: "Missing email" });
+
+  // Normalize version — anything that isn't "professional" falls back to "personal"
+  const v = (version === "professional" || version === "pro") ? "professional" : "personal";
 
   try {
     // Verify invite exists and is approved
@@ -58,10 +63,10 @@ export default async function handler(req, res) {
       from: `"Jack Kruse" <${process.env.GMAIL_FROM}>`,
       to: email,
       subject: "You're invited to Mahan — my military transition networking tool",
-      html: buildInviteEmail(email),
+      html: buildInviteEmail(email, v),
     });
 
-    return res.status(200).json({ success: true, message: `Invite email sent to ${email}` });
+    return res.status(200).json({ success: true, message: `Invite email (${v}) sent to ${email}` });
 
   } catch (err) {
     console.error("Invite email error:", err);
@@ -69,7 +74,12 @@ export default async function handler(req, res) {
   }
 }
 
-function buildInviteEmail(recipientEmail) {
+function buildInviteEmail(recipientEmail, version = "personal") {
+  // The only paragraph that differs between the two versions:
+  const mahanStory = version === "professional"
+    ? `I named it <strong>Mahan</strong> — yes, <em>that</em> Mahan — the naval officer who stepped off the quarterdeck, started writing, and became the most influential strategic thinker of his era. He's the original military-to-civilian transition story.`
+    : `I named it <strong>Mahan</strong> — yes, <em>that</em> Mahan — the naval officer who stepped off the quarterdeck, started writing, and became the most influential strategic thinker of his era. He's the original military-to-civilian transition story. Plus he had horrible seamanship with numerous mishaps throughout his career and somehow still made Captain. If you've seen me on a sailboat, you'd know this name just felt right.`;
+
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
@@ -78,22 +88,25 @@ function buildInviteEmail(recipientEmail) {
 
   <div style="background:#0a2342;padding:28px 32px;">
     <div style="font-size:11px;color:#c9a84c;letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Personal invitation</div>
-    <div style="font-size:26px;font-weight:700;color:#fff;margin-bottom:6px;">You're in.</div>
-    <div style="font-size:14px;color:#8fadc8;line-height:1.5;">I built something I wish had existed when I started thinking about my transition — and I want you to have access to it.</div>
+    <div style="font-size:26px;font-weight:700;color:#fff;">You're in.</div>
   </div>
 
   <div style="padding:28px 32px;">
 
     <p style="font-size:15px;color:#333;line-height:1.7;margin:0 0 18px 0;">
-      I'm Jack Kruse — Navy Captain, currently serving as Military Group Chief at the U.S. Embassy in Brasília. I retire in 2028 and I've been building toward that transition for the past year. One of the things I noticed early on is that managing a professional network across hundreds of contacts — keeping track of who you've talked to, what was said, who you need to follow up with, and which relationships are going cold — is genuinely hard. There's no good tool for it that actually understands what military transition looks like.
+      As I started thinking about my transition, everyone told me NETWORK, NETWORK, NETWORK — and I realized I had no way to track all those conversations. So I built a tool to do just that, and I want you to have it.
     </p>
 
     <p style="font-size:15px;color:#333;line-height:1.7;margin:0 0 18px 0;">
-      So I built one. I named it <strong>Mahan</strong> — after Alfred Thayer Mahan, the naval officer who stepped off the quarterdeck, started writing, and became the most influential strategic thinker of his era. He's the original military-to-civilian intellectual transition story. The name felt right.
+      Keeping a professional network straight — who you've talked to, what was said, who's owed a follow-up, and which relationships are quietly going cold — is genuinely hard. And there's no good tool for it that actually understands what a military transition looks like.
     </p>
 
     <p style="font-size:15px;color:#333;line-height:1.7;margin:0 0 24px 0;">
-      I'm sharing it with a small group of people I trust. You're one of them. Here's what you're getting access to:
+      ${mahanStory}
+    </p>
+
+    <p style="font-size:15px;color:#333;line-height:1.7;margin:0 0 24px 0;">
+      I'm sharing it with a small group of people I trust. You're one of them. Here's what you're getting:
     </p>
 
     <div style="background:#f9f9f7;border-radius:10px;padding:20px 24px;margin-bottom:24px;border-left:3px solid #0a2342;">
@@ -101,31 +114,31 @@ function buildInviteEmail(recipientEmail) {
 
       <div style="margin-bottom:14px;">
         <div style="font-size:14px;font-weight:600;color:#1a1a18;margin-bottom:4px;">📋 Contact tracking</div>
-        <div style="font-size:14px;color:#555;line-height:1.6;">A clean kanban board — Active, Overdue, Cold Outreach, Inactive. Every contact shows how long it's been since you last touched them. Color-coded so you see at a glance what needs attention.</div>
+        <div style="font-size:14px;color:#555;line-height:1.6;">A clean kanban board — Active, Overdue, Cold Outreach, Inactive — color-coded so you see what needs attention at a glance.</div>
       </div>
 
       <div style="margin-bottom:14px;">
         <div style="font-size:14px;font-weight:600;color:#1a1a18;margin-bottom:4px;">📝 Interaction logging</div>
-        <div style="font-size:14px;color:#555;line-height:1.6;">Log a note directly on any contact card — what you talked about, what was promised, what the next step is. Every note is timestamped and shows up in that contact's history. Logging a note automatically updates their last check-in date.</div>
+        <div style="font-size:14px;color:#555;line-height:1.6;">Log a note on any contact: what you discussed, what was promised, the next step. Every note is timestamped and auto-updates their last check-in.</div>
       </div>
 
       <div style="margin-bottom:14px;">
         <div style="font-size:14px;font-weight:600;color:#1a1a18;margin-bottom:4px;">💬 LinkedIn message drafts</div>
-        <div style="font-size:14px;color:#555;line-height:1.6;">Open any contact, hit "Draft LinkedIn message" — Claude reads their profile info and your interaction history and writes a warm, personalized outreach message. Under 150 words, ready to copy.</div>
+        <div style="font-size:14px;color:#555;line-height:1.6;">Claude reads the contact's info and your interaction history and writes a warm, personalized outreach message, ready to copy.</div>
       </div>
 
       <div style="margin-bottom:14px;">
         <div style="font-size:14px;font-weight:600;color:#1a1a18;margin-bottom:4px;">📬 Weekly Sunday digest</div>
-        <div style="font-size:14px;color:#555;line-height:1.6;">Every Sunday morning you get an email briefing: your outreach numbers vs. your goals, who's overdue, who's going quiet, and an AI analysis of your networking patterns across the past 90 days. It surfaces things a week-by-week view misses — unresolved commitments, cooling relationships, sectors you're neglecting.</div>
+        <div style="font-size:14px;color:#555;line-height:1.6;">An email briefing: your numbers vs. your goals, who's overdue, who's going quiet, and an AI read on your networking patterns.</div>
       </div>
 
       <div>
         <div style="font-size:14px;font-weight:600;color:#1a1a18;margin-bottom:4px;">⚙️ Personalized to your transition</div>
-        <div style="font-size:14px;color:#555;line-height:1.6;">When you first sign in, a quick setup wizard asks about your transition year, target region, target sector, and outreach goals. The digest and priority rankings are calibrated to your specific situation — not a generic sales cadence.</div>
+        <div style="font-size:14px;color:#555;line-height:1.6;">A quick setup asks your transition year, target region, target sector, and goals, then calibrates everything to you.</div>
       </div>
     </div>
 
-    <div style="background:#EAF3DE;border-radius:10px;padding:18px 22px;margin-bottom:28px;">
+    <div style="background:#EAF3DE;border-radius:10px;padding:18px 22px;margin-bottom:24px;">
       <div style="font-size:14px;font-weight:600;color:#3B6D11;margin-bottom:8px;">How to get started</div>
       <ol style="font-size:14px;color:#333;line-height:1.8;margin:0;padding-left:20px;">
         <li>Go to <a href="https://usemahan.com" style="color:#0a2342;font-weight:600;">usemahan.com</a></li>
@@ -135,26 +148,31 @@ function buildInviteEmail(recipientEmail) {
       </ol>
     </div>
 
+    <div style="background:#eef3f9;border-radius:10px;padding:18px 22px;margin-bottom:28px;">
+      <div style="font-size:14px;font-weight:600;color:#0a2342;margin-bottom:8px;">📱 Put it on your phone</div>
+      <div style="font-size:14px;color:#333;line-height:1.7;margin-bottom:10px;">Mahan installs like a real app — no App Store, no download.</div>
+      <div style="font-size:14px;color:#333;line-height:1.7;margin-bottom:8px;"><strong>iPhone:</strong> open <a href="https://usemahan.com" style="color:#0a2342;font-weight:600;">usemahan.com</a> in Safari, tap the Share button (the square with an up arrow), scroll down, and tap <strong>Add to Home Screen</strong>.</div>
+      <div style="font-size:14px;color:#333;line-height:1.7;margin-bottom:10px;"><strong>Android:</strong> open <a href="https://usemahan.com" style="color:#0a2342;font-weight:600;">usemahan.com</a> in Chrome, tap the <strong>⋮</strong> menu (top right), and tap <strong>Add to Home screen</strong> (or <strong>Install app</strong>).</div>
+      <div style="font-size:14px;color:#555;line-height:1.6;">You'll get a Mahan icon on your home screen that opens full-screen, just like a native app.</div>
+    </div>
+
     <p style="font-size:14px;color:#555;line-height:1.7;margin:0 0 14px 0;">
-      Your data is completely private. I can't see your contacts or your notes. Each account is fully isolated. This is your tool, your network, your transition.
+      Your data is completely private. I can't see your contacts or your notes. Each account is fully isolated — your network, your notes, your transition.
     </p>
 
     <p style="font-size:14px;color:#555;line-height:1.7;margin:0 0 24px 0;">
-      I'm still building this — if something doesn't work right or you have an idea for how to make it better, reply to this email and tell me. I want this to be genuinely useful.
+      I'm still building this, so if something's broken or you've got an idea to make it better, just reply and tell me. I want it to be genuinely useful.
     </p>
 
     <p style="font-size:15px;color:#333;line-height:1.7;margin:0;">
-      Fair winds,<br>
-      <strong>Jack</strong><br>
-      <span style="font-size:13px;color:#999;">Military Group Chief, U.S. Embassy Brasília<br>
-      Navy Captain (O-6), retiring 2028</span>
+      Full Speed Ahead,<br>
+      <strong>Jack</strong>
     </p>
 
   </div>
 
-  <div style="background:#0a2342;padding:16px 32px;display:flex;align-items:center;justify-content:space-between;">
+  <div style="background:#0a2342;padding:16px 32px;">
     <div style="font-size:12px;color:#8fadc8;">Mahan · usemahan.com</div>
-    <a href="https://usemahan.com" style="font-size:12px;font-weight:600;color:#c9a84c;text-decoration:none;">Sign in →</a>
   </div>
 
 </div>
