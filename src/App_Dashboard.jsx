@@ -14,6 +14,7 @@ function useWindowWidth() {
 // ─── Auth session helpers ─────────────────────────────────────────────────
 const AUTH_STORAGE_KEY = "crm_auth_session";
 const AUTH_SESSION_DAYS = 30;
+const ADMIN_EMAILS = ["jackkruseiii@gmail.com"]; // who can see/use the Invite panel
 
 function readAuthSession() {
   try {
@@ -167,7 +168,7 @@ LINKEDIN MESSAGE RULES:
     "Write the LinkedIn message now. No subject line. Start directly with their first name."
   ].join("\n");
 
- const credential = getStoredCredential();
+  const credential = getStoredCredential();
   const response = await fetch("/api/draft", {
     method: "POST",
     headers: {
@@ -207,7 +208,7 @@ Rules:
 
   const userPrompt = "Extract contact info from this LinkedIn profile text:\n\n" + pastedText;
 
- const credential = getStoredCredential();
+  const credential = getStoredCredential();
   const response = await fetch("/api/draft", {
     method: "POST",
     headers: {
@@ -1237,6 +1238,180 @@ function SettingsPanel({ settings, onClose, onSaved }) {
 }
 
 // ─── Main dashboard ───────────────────────────────────────────────────────
+function InviteModal({ onClose }) {
+  const [email,     setEmail]     = useState("");
+  const [version,   setVersion]   = useState("personal");
+  const [sending,   setSending]   = useState(false);
+  const [result,    setResult]    = useState(null);
+  const [invites,   setInvites]   = useState(null); // null = loading
+  const [busyEmail, setBusyEmail] = useState("");
+
+  async function callInvite(body) {
+    const credential = getStoredCredential();
+    const res = await fetch("/api/invite", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(credential ? { "Authorization": `Bearer ${credential}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || "Request failed");
+    return data;
+  }
+
+  async function loadList() {
+    try {
+      const data = await callInvite({ action: "list" });
+      setInvites(data.invites || []);
+    } catch {
+      setInvites([]);
+    }
+  }
+
+  useEffect(() => { loadList(); }, []);
+
+  async function send() {
+    const addr = email.trim().toLowerCase();
+    if (!addr || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)) {
+      setResult({ ok: false, msg: "Enter a valid email address." });
+      return;
+    }
+    setSending(true);
+    setResult(null);
+    try {
+      await callInvite({ action: "send", email: addr, version });
+      setResult({ ok: true, msg: `Sent the ${version} invite to ${addr}. They now have access.` });
+      setEmail("");
+      loadList();
+    } catch (err) {
+      setResult({ ok: false, msg: err.message });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function setStatus(addr, action) {
+    setBusyEmail(addr);
+    setResult(null);
+    try {
+      await callInvite({ action, email: addr });
+      await loadList();
+    } catch (err) {
+      setResult({ ok: false, msg: err.message });
+    } finally {
+      setBusyEmail("");
+    }
+  }
+
+  const small = typeof window !== "undefined" && window.innerWidth < 640;
+
+  function statusChip(st) {
+    if (st === "approved") return { bg:"#EAF3DE", fg:"#3B6D11", label:"Active" };
+    if (st === "revoked")  return { bg:"#FBEAEA", fg:"#A32D2D", label:"Revoked" };
+    return { bg:"#FBF3E0", fg:"#8A6D1B", label: st ? st.charAt(0).toUpperCase() + st.slice(1) : "Pending" };
+  }
+
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:small?"flex-end":"center", justifyContent:"center", padding:small?0:16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:small?"16px 16px 0 0":16, border:"0.5px solid #e0e0de", width:small?"100%":"min(480px,100%)", maxHeight:small?"92vh":"90vh", overflowY:"auto", padding:small?"20px 16px":24 }}>
+        <div style={{ display:"flex", alignItems:"flex-start", marginBottom:18 }}>
+          <div>
+            <div style={{ fontSize:19, fontWeight:600, marginBottom:3 }}>Invite someone</div>
+            <div style={{ fontSize:13, color:"#777" }}>Grants access and emails them the welcome</div>
+          </div>
+          <button onClick={onClose} style={{ marginLeft:"auto", background:"transparent", border:"0.5px solid #ccc", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:"#666" }}>✕ Close</button>
+        </div>
+
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:"#444", marginBottom:6 }}>Email address</div>
+          <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="their@email.com"
+            style={{ width:"100%", fontSize:14, padding:"9px 11px", border:"0.5px solid #d8d8d4", borderRadius:8, background:"#fff", color:"#222", fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+          <div style={{ fontSize:11, color:"#999", marginTop:6 }}>Must be the Google account they'll sign in with.</div>
+        </div>
+
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:"#444", marginBottom:8 }}>Version</div>
+          <div style={{ display:"flex", gap:8 }}>
+            {[
+              { id:"personal",     label:"Personal",     hint:"includes the sailing joke" },
+              { id:"professional", label:"Professional", hint:"joke removed" },
+            ].map(opt => {
+              const active = version === opt.id;
+              return (
+                <button key={opt.id} onClick={() => setVersion(opt.id)}
+                  style={{ flex:1, textAlign:"left", padding:"10px 12px", borderRadius:9, cursor:"pointer",
+                    border: active ? "1.5px solid #0a2342" : "0.5px solid #d8d8d4",
+                    background: active ? "#f0f4f9" : "#fff" }}>
+                  <div style={{ fontSize:13, fontWeight:600, color:"#1a1a18" }}>{opt.label}</div>
+                  <div style={{ fontSize:11, color:"#888", marginTop:2 }}>{opt.hint}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {result && (
+          <div style={{ fontSize:13, lineHeight:1.5, padding:"10px 12px", borderRadius:8, marginBottom:16,
+            background: result.ok ? "#EAF3DE" : "#FBEAEA",
+            color: result.ok ? "#3B6D11" : "#A32D2D",
+            border: `0.5px solid ${result.ok ? "#c5e0a5" : "#e5b8b8"}` }}>
+            {result.ok ? "✓ " : "⚠️ "}{result.msg}
+          </div>
+        )}
+
+        <button onClick={send} disabled={sending || !email.trim()}
+          style={{ width:"100%", fontSize:14, fontWeight:600, padding:"11px", borderRadius:9, border:"none",
+            background:"#0a2342", color:"#fff", cursor:(sending||!email.trim())?"default":"pointer",
+            opacity:(sending||!email.trim())?0.5:1 }}>
+          {sending ? "Sending…" : "Send invite"}
+        </button>
+
+        <div style={{ marginTop:24, borderTop:"0.5px solid #eee", paddingTop:18 }}>
+          <div style={{ display:"flex", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:"#444" }}>People with access</div>
+            <button onClick={loadList} title="Refresh"
+              style={{ marginLeft:"auto", fontSize:11, padding:"3px 8px", borderRadius:6, border:"0.5px solid #e0e0de", background:"#fff", color:"#777", cursor:"pointer" }}>↻</button>
+          </div>
+
+          {invites === null && <div style={{ fontSize:13, color:"#999" }}>Loading…</div>}
+          {invites && invites.length === 0 && <div style={{ fontSize:13, color:"#999" }}>No invites yet.</div>}
+
+          {invites && invites.map(inv => {
+            const chip = statusChip(inv.status);
+            const busy = busyEmail === inv.email;
+            return (
+              <div key={inv.email} style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 0", borderBottom:"0.5px solid #f2f2ee" }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, color:"#1a1a18", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{inv.email}</div>
+                  <div style={{ fontSize:11, color:"#aaa" }}>
+                    {inv.accepted_at
+                      ? "Joined " + new Date(inv.accepted_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})
+                      : "Not signed in yet"}
+                  </div>
+                </div>
+                <span style={{ fontSize:11, fontWeight:600, padding:"3px 8px", borderRadius:6, background:chip.bg, color:chip.fg, whiteSpace:"nowrap" }}>{chip.label}</span>
+                {inv.status === "approved" ? (
+                  <button onClick={() => setStatus(inv.email, "revoke")} disabled={busy}
+                    style={{ fontSize:11, padding:"5px 10px", borderRadius:7, border:"0.5px solid #e5b8b8", background:"#fff", color:"#A32D2D", cursor:busy?"default":"pointer", opacity:busy?0.5:1, whiteSpace:"nowrap" }}>
+                    {busy ? "…" : "Revoke"}
+                  </button>
+                ) : (
+                  <button onClick={() => setStatus(inv.email, "approve")} disabled={busy}
+                    style={{ fontSize:11, padding:"5px 10px", borderRadius:7, border:"0.5px solid #c5e0a5", background:"#fff", color:"#3B6D11", cursor:busy?"default":"pointer", opacity:busy?0.5:1, whiteSpace:"nowrap" }}>
+                    {busy ? "…" : "Re-approve"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function NetworkingDashboard({ onNewport }) {
   const width    = useWindowWidth();
   const isMobile = width < 640;
@@ -1246,6 +1421,7 @@ export default function NetworkingDashboard({ onNewport }) {
   const [userSettings,     setUserSettings]     = useState(null);
   const [showSettings,     setShowSettings]     = useState(false);
   const unlocked = !!userEmail;
+  const isAdmin = ADMIN_EMAILS.includes((userEmail || "").toLowerCase());
   const [contacts,        setContacts]        = useState([]);
   const [interactions,    setInteractions]    = useState([]);
   const [loading,         setLoading]         = useState(true);
@@ -1254,6 +1430,7 @@ export default function NetworkingDashboard({ onNewport }) {
   const [selected,        setSelected]        = useState(null);
   const [selectedType,    setSelectedType]    = useState(null);
   const [showNew,         setShowNew]         = useState(false);
+  const [showInvite,      setShowInvite]      = useState(false);
   const [query,           setQuery]           = useState("");
   const [regionFilter,    setRegionFilter]    = useState("");
   const [activeColFilter, setActiveColFilter] = useState("");
@@ -1449,6 +1626,12 @@ export default function NetworkingDashboard({ onNewport }) {
           style={{ fontSize:13, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#555", cursor:"pointer" }}>
           {refreshing ? "⏳" : "🔄"}
         </button>
+        {isAdmin && (
+          <button onClick={() => setShowInvite(true)} title="Send an invite"
+            style={{ fontSize:13, fontWeight:500, padding:"7px 14px", borderRadius:8, border:"0.5px solid #0a2342", background:"#fff", color:"#0a2342", cursor:"pointer", whiteSpace:"nowrap" }}>
+            ✉️ Invite
+          </button>
+        )}
         <button onClick={() => setShowNew(true)} style={{ fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
           + New contact
         </button>
@@ -1538,6 +1721,10 @@ export default function NetworkingDashboard({ onNewport }) {
 
       {showNew && (
         <NewContactModal onClose={() => setShowNew(false)} onAdd={c => setContacts(p => [...p, c])} />
+      )}
+
+      {showInvite && (
+        <InviteModal onClose={() => setShowInvite(false)} />
       )}
 
       {showSettings && userSettings && (
