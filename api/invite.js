@@ -1,18 +1,32 @@
 // api/invite.js
-// Called manually to send an invite email to a new user.
-// The invites row must already exist in Supabase with status: approved.
-// POST with { email: "their@email.com", version: "personal" | "professional" }
-//   - version defaults to "personal" (includes the sailing joke, for people who know you well)
-//   - "professional" drops the joke, for professional acquaintances
-// Secured by requiring the ADMIN_SECRET env var in the Authorization header.
+// Sends an invite from the in-app admin panel.
+// Auth: the caller must be signed in with Google AND be on the ADMIN_EMAILS list.
+// POST { email, version:"personal"|"professional" }.
+// Creates/approves the invites row AND emails the welcome — one step.
 
 import nodemailer from "nodemailer";
+import { OAuth2Client } from "google-auth-library";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+// Who is allowed to send invites. Comma-separated env override, else this default.
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "jackkruseiii@gmail.com")
+  .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+
+async function verifyGoogle(credential) {
+  const ticket = await googleClient.verifyIdToken({
+    idToken: credential,
+    audience: process.env.GOOGLE_CLIENT_ID,
+  });
+  const payload = ticket.getPayload();
+  if (!payload.email_verified) throw new Error("Email not verified");
+  return payload.email.toLowerCase();
+}
 
 export default async function handler(req, res) {
   const allowedOrigins = ["https://usemahan.com", "https://www.usemahan.com"];
@@ -26,34 +40,47 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  // Simple admin auth — set ADMIN_SECRET in Vercel env vars
-  const auth = (req.headers.authorization || "").replace("Bearer ", "");
-  if (!auth || auth !== process.env.ADMIN_SECRET) {
-    return res.status(401).json({ error: "Unauthorized" });
+  // Admin auth — must be a valid Google sign-in on the ADMIN_EMAILS list
+  const credential = (req.headers.authorization || "").replace("Bearer ", "");
+  if (!credential) return res.status(401).json({ error: "No credential" });
+
+  let callerEmail;
+  try {
+    callerEmail = await verifyGoogle(credential);
+  } catch {
+    return res.status(401).json({ error: "Invalid or expired sign-in" });
+  }
+  if (!ADMIN_EMAILS.includes(callerEmail)) {
+    return res.status(403).json({ error: "Not authorized to send invites" });
   }
 
   const { email, version } = req.body || {};
   if (!email) return res.status(400).json({ error: "Missing email" });
-
-  // Normalize version — anything that isn't "professional" falls back to "personal"
+  const target = String(email).trim().toLowerCase();
   const v = (version === "professional" || version === "pro") ? "professional" : "personal";
 
   try {
-    // Verify invite exists and is approved
-    const { data: invite, error } = await supabase
+    // Create or approve the invite row — no separate Supabase step needed.
+    const { data: existing } = await supabase
       .from("invites")
-      .select("status")
-      .eq("email", email.toLowerCase())
-      .single();
+      .select("email")
+      .eq("email", target)
+      .maybeSingle();
 
-    if (error || !invite) {
-      return res.status(404).json({ error: "No invite found for this email. Add them to the invites table first." });
-    }
-    if (invite.status !== "approved") {
-      return res.status(400).json({ error: "Invite status is not approved." });
+    if (existing) {
+      const { error: upErr } = await supabase
+        .from("invites")
+        .update({ status: "approved", invited_by: callerEmail })
+        .eq("email", target);
+      if (upErr) throw upErr;
+    } else {
+      const { error: insErr } = await supabase
+        .from("invites")
+        .insert({ email: target, invited_by: callerEmail, status: "approved" });
+      if (insErr) throw insErr;
     }
 
-    // Send the email
+    // Send the welcome email
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: { user: process.env.GMAIL_FROM, pass: process.env.GMAIL_APP_PASSWORD },
@@ -61,15 +88,15 @@ export default async function handler(req, res) {
 
     await transporter.sendMail({
       from: `"Jack Kruse" <${process.env.GMAIL_FROM}>`,
-      to: email,
+      to: target,
       subject: "You're invited to Mahan — my military transition networking tool",
-      html: buildInviteEmail(email, v),
+      html: buildInviteEmail(target, v),
     });
 
-    return res.status(200).json({ success: true, message: `Invite email (${v}) sent to ${email}` });
+    return res.status(200).json({ success: true, message: `Invite (${v}) sent to ${target}. Access granted.` });
 
   } catch (err) {
-    console.error("Invite email error:", err);
+    console.error("Invite error:", err);
     return res.status(500).json({ error: err.message });
   }
 }
