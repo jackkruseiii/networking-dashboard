@@ -773,6 +773,79 @@ function ModalField({ label, k, type="text", placeholder="", form, set, errors }
   );
 }
 
+async function parseBusinessCard(imageBase64, mediaType) {
+  const systemPrompt = `You extract structured contact information from a photo of a business card.
+
+Return ONLY a JSON object with these exact keys (use empty string "" if not found):
+{
+  "fn": "first name",
+  "ln": "last name",
+  "company": "company or organization",
+  "industry": "best-guess industry based on title/company",
+  "email": "email address",
+  "officePhone": "office / main / work / direct phone",
+  "mobilePhone": "mobile / cell phone",
+  "city": "city",
+  "state": "state or region",
+  "linkedin": "LinkedIn URL if printed on the card",
+  "notes": "the person's job title/role, plus anything else useful as a quick reference"
+}
+
+Rules:
+- Return ONLY the JSON object, no markdown, no backticks, no preamble
+- If a field isn't on the card, use an empty string
+- If two numbers are labeled (O/M/C/Cell/Direct/Mobile), map office vs mobile accordingly; a single unlabeled number goes in mobilePhone
+- Put the person's job title in "notes"`;
+
+  const credential = getStoredCredential();
+  const response = await fetch("/api/parse-card", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(credential ? { "Authorization": `Bearer ${credential}` } : {}),
+    },
+    body: JSON.stringify({ imageBase64, mediaType, systemPrompt }),
+  });
+
+  const data = await response.json();
+  const text = (data.text || "").trim();
+
+  try {
+    const cleaned = text.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+    return JSON.parse(cleaned);
+  } catch {
+    return null;
+  }
+}
+
+// Read an image File, downscale to a max dimension, return { base64, mediaType } as JPEG.
+function fileToResizedBase64(file, maxDim = 1568, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read the image file."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Could not decode that image."));
+      img.onload = () => {
+        let width = img.width, height = img.height;
+        if (Math.max(width, height) > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        resolve({ base64: dataUrl.split(",")[1], mediaType: "image/jpeg" });
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function NewContactModal({ onClose, onAdd }) {
   const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", officePhone:"", mobilePhone:"", ug:"", grad:"", lc:"", nc:"", notes:"", notesDoc:"", region:"", friend:false };
   const [form,    setForm]    = useState(empty);
@@ -781,6 +854,8 @@ function NewContactModal({ onClose, onAdd }) {
   const [liText,  setLiText]  = useState("");
   const [parsing, setParsing] = useState(false);
   const [parsed,  setParsed]  = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanned,  setScanned]  = useState(false);
 
   function set(k, v) { setForm(p => ({ ...p, [k]: v })); }
 
@@ -795,6 +870,31 @@ function NewContactModal({ onClose, onAdd }) {
       setTimeout(() => setParsed(false), 3000);
     } else {
       alert("Couldn't parse that text — fill in manually.");
+    }
+  }
+
+  async function handleScanCard(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    setScanning(true); setScanned(false);
+    try {
+      const { base64, mediaType } = await fileToResizedBase64(file);
+      const r = await parseBusinessCard(base64, mediaType);
+      if (r) {
+        setForm(p => ({ ...p,
+          fn:r.fn||p.fn, ln:r.ln||p.ln, company:r.company||p.company, industry:r.industry||p.industry,
+          email:r.email||p.email, officePhone:r.officePhone||p.officePhone, mobilePhone:r.mobilePhone||p.mobilePhone,
+          city:r.city||p.city, state:r.state||p.state, linkedin:r.linkedin||p.linkedin, notes:r.notes||p.notes }));
+        setScanned(true);
+        setTimeout(() => setScanned(false), 3000);
+      } else {
+        alert("Couldn't read that card — try a clearer, straight-on photo or fill in manually.");
+      }
+    } catch (err) {
+      alert(err.message || "Something went wrong reading the card.");
+    } finally {
+      setScanning(false);
     }
   }
 
@@ -828,6 +928,16 @@ function NewContactModal({ onClose, onAdd }) {
             {parsing ? "✍️ Parsing…" : "Fill fields from LinkedIn"}
           </button>
           {parsed && <span style={{ fontSize:11, color:"#3B6D11", marginLeft:8 }}>✓ Fields filled — review and edit as needed</span>}
+        </div>
+
+        <div style={{ background:"#f4f0fb", border:"0.5px solid #ddd0f0", borderRadius:10, padding:"14px 16px", marginBottom:20 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:"#6b3fb0", marginBottom:6 }}>📇 Scan a business card (optional)</div>
+          <div style={{ fontSize:11, color:"#777", marginBottom:8 }}>Take a photo or pick one — Claude reads it and fills the fields below.</div>
+          <label style={{ display:"inline-block", fontSize:12, fontWeight:500, padding:"6px 14px", borderRadius:7, background: scanning ? "#9a86c4" : "#6b3fb0", color:"#fff", cursor: scanning ? "default" : "pointer" }}>
+            {scanning ? "🔍 Reading card…" : "📷 Scan business card"}
+            <input type="file" accept="image/*" capture="environment" onChange={handleScanCard} disabled={scanning} style={{ display:"none" }} />
+          </label>
+          {scanned && <span style={{ fontSize:11, color:"#3B6D11", marginLeft:8 }}>✓ Fields filled — review and edit as needed</span>}
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
