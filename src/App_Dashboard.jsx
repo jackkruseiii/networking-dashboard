@@ -308,6 +308,17 @@ function GoogleSignInGate({ onUnlock }) {
   const [sdkReady,  setSdkReady]  = useState(false);
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
+  // Request-access form state
+  const [showRequest, setShowRequest] = useState(false);
+  const [rName,  setRName]  = useState("");
+  const [rEmail, setREmail] = useState("");
+  const [rAff,   setRAff]   = useState("");
+  const [rNote,  setRNote]  = useState("");
+  const [honeypot,   setHoneypot]   = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted,  setSubmitted]  = useState(false);
+  const [reqError,   setReqError]   = useState("");
+
   async function handleCredentialResponse(response) {
     setVerifying(true);
     setError("");
@@ -322,7 +333,13 @@ function GoogleSignInGate({ onUnlock }) {
         writeAuthSession(data.email, response.credential, data.onboardingComplete);
         onUnlock(data.email, data.onboardingComplete);
       } else {
-        setError(data.error || "This Google account isn't authorized for this app.");
+        setError(data.error || "This Google account isn't on the invite list yet.");
+        try {
+          const p = JSON.parse(atob(response.credential.split(".")[1]));
+          if (p.email && !rEmail) setREmail(p.email);
+          if (p.name && !rName) setRName(p.name);
+        } catch {}
+        setShowRequest(true);
       }
     } catch (err) {
       console.error("Google verify failed:", err);
@@ -334,13 +351,9 @@ function GoogleSignInGate({ onUnlock }) {
 
   useEffect(() => {
     if (!clientId) return;
-
     function init() {
       if (!window.google || !window.google.accounts) return;
-      window.google.accounts.id.initialize({
-        client_id: clientId,
-        callback: handleCredentialResponse,
-      });
+      window.google.accounts.id.initialize({ client_id: clientId, callback: handleCredentialResponse });
       if (buttonRef.current) {
         window.google.accounts.id.renderButton(buttonRef.current, {
           theme: "outline", size: "large", text: "signin_with", shape: "pill", width: 280,
@@ -348,12 +361,9 @@ function GoogleSignInGate({ onUnlock }) {
       }
       setSdkReady(true);
     }
-
     if (window.google && window.google.accounts) { init(); return; }
-
     const existing = document.getElementById("google-identity-script");
     if (existing) { existing.addEventListener("load", init); return; }
-
     const script = document.createElement("script");
     script.src = "https://accounts.google.com/gsi/client";
     script.id = "google-identity-script";
@@ -363,26 +373,130 @@ function GoogleSignInGate({ onUnlock }) {
     document.body.appendChild(script);
   }, [clientId]);
 
+  async function submitRequest() {
+    const email = rEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setReqError("Please enter a valid email address."); return; }
+    setSubmitting(true); setReqError("");
+    try {
+      const res = await fetch("/api/request-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: rName, email, affiliation: rAff, note: rNote, website: honeypot }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Something went wrong. Please try again.");
+      setSubmitted(true);
+    } catch (err) {
+      setReqError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const features = [
+    ["📋", "Track every contact", "A kanban board that surfaces who needs attention and who's going cold."],
+    ["📝", "Log your conversations", "Timestamped notes on every person, so nothing slips through."],
+    ["💬", "AI-drafted outreach", "Personalized LinkedIn messages from your history, ready to send."],
+    ["📬", "Weekly digest", "A Sunday email on your progress, overdue follow-ups, and blind spots."],
+    ["⚙️", "Built for the transition", "Calibrated to your target region, sector, and timeline."],
+  ];
+
+  const inputStyle = { width:"100%", fontSize:14, padding:"9px 11px", border:"0.5px solid #d8d8d4", borderRadius:8, background:"#fff", color:"#222", fontFamily:"inherit", outline:"none", boxSizing:"border-box" };
+
   return (
-    <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif" }}>
-      <div style={{ background:"#fff", border:"0.5px solid #e0e0de", borderRadius:16, padding:"2.5rem 2rem", width:"min(360px,90vw)", textAlign:"center" }}>
-        <div style={{ fontSize:28, marginBottom:8 }}>⚓</div>
-        <div style={{ fontSize:19, fontWeight:700, color:"#1a1a18", marginBottom:6 }}>Mahan</div>
-        <div style={{ fontSize:13, color:"#999", marginBottom:24 }}>Sign in with Google to continue</div>
+    <div style={{ minHeight:"100vh", background:"#fafaf8", fontFamily:"Georgia,serif", padding:"24px 16px" }}>
+      <div style={{ maxWidth:600, margin:"0 auto" }}>
+        <div style={{ background:"#fff", border:"0.5px solid #e0e0de", borderRadius:16, overflow:"hidden" }}>
 
-        {!clientId && (
-          <div style={{ fontSize:12, color:"#A32D2D", marginBottom:16, lineHeight:1.5 }}>
-            Missing VITE_GOOGLE_CLIENT_ID environment variable.
+          <div style={{ background:"#0a2342", padding:"30px 32px" }}>
+            <div style={{ fontSize:30, marginBottom:6 }}>⚓</div>
+            <div style={{ fontSize:26, fontWeight:700, color:"#fff", letterSpacing:"-.02em" }}>Mahan</div>
+            <div style={{ fontSize:14, color:"#8fadc8", marginTop:4, lineHeight:1.5 }}>A networking CRM for the military-to-civilian transition.</div>
           </div>
-        )}
 
-        <div style={{ display:"flex", justifyContent:"center", marginBottom:12 }}>
-          <div ref={buttonRef} />
+          <div style={{ padding:"26px 32px" }}>
+            <p style={{ fontSize:15, color:"#333", lineHeight:1.7, margin:"0 0 20px 0" }}>
+              Everyone says <em>network, network, network</em> — but keeping hundreds of conversations straight is the hard part. Mahan is a private, personal CRM built to do exactly that as you plan your move out of uniform.
+            </p>
+
+            <div style={{ background:"#f9f9f7", borderRadius:10, padding:"18px 20px", marginBottom:24, borderLeft:"3px solid #0a2342" }}>
+              {features.map(([icon, title, desc], i) => (
+                <div key={i} style={{ marginBottom: i === features.length - 1 ? 0 : 12 }}>
+                  <div style={{ fontSize:14, fontWeight:600, color:"#1a1a18" }}>{icon} {title}</div>
+                  <div style={{ fontSize:13, color:"#666", lineHeight:1.5, marginTop:2 }}>{desc}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ textAlign:"center", paddingBottom:8 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:"#444", marginBottom:12 }}>Already invited? Sign in.</div>
+              {!clientId && (
+                <div style={{ fontSize:12, color:"#A32D2D", marginBottom:12 }}>Missing VITE_GOOGLE_CLIENT_ID environment variable.</div>
+              )}
+              <div style={{ display:"flex", justifyContent:"center", minHeight:44 }}>
+                <div ref={buttonRef} />
+              </div>
+              {clientId && !sdkReady && <div style={{ fontSize:12, color:"#999", marginTop:8 }}>Loading sign-in…</div>}
+              {verifying && <div style={{ fontSize:12, color:"#999", marginTop:8 }}>Verifying…</div>}
+              {error && <div style={{ fontSize:12, color:"#A32D2D", marginTop:10, lineHeight:1.5 }}>{error}</div>}
+            </div>
+
+            <div style={{ height:1, background:"#eee", margin:"22px 0" }} />
+
+            {!showRequest && !submitted && (
+              <div style={{ textAlign:"center" }}>
+                <div style={{ fontSize:13, color:"#666", marginBottom:10 }}>Not on the list yet?</div>
+                <button onClick={() => setShowRequest(true)}
+                  style={{ fontSize:13, fontWeight:600, padding:"9px 20px", borderRadius:9, border:"0.5px solid #0a2342", background:"#fff", color:"#0a2342", cursor:"pointer" }}>
+                  Request access →
+                </button>
+              </div>
+            )}
+
+            {submitted && (
+              <div style={{ background:"#EAF3DE", border:"0.5px solid #c5e0a5", borderRadius:10, padding:"16px 18px", textAlign:"center" }}>
+                <div style={{ fontSize:15, fontWeight:600, color:"#3B6D11", marginBottom:4 }}>✓ Request sent</div>
+                <div style={{ fontSize:13, color:"#3B6D11", lineHeight:1.6 }}>Thanks — Jack will review it and follow up by email if you're a fit. You can close this page.</div>
+              </div>
+            )}
+
+            {showRequest && !submitted && (
+              <div>
+                <div style={{ fontSize:13, fontWeight:600, color:"#444", marginBottom:12 }}>Request access</div>
+
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:12, color:"#666", marginBottom:5 }}>Name</div>
+                  <input value={rName} onChange={e => setRName(e.target.value)} placeholder="Your name" style={inputStyle} />
+                </div>
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:12, color:"#666", marginBottom:5 }}>Email <span style={{ color:"#bbb" }}>(the Google account you'll sign in with)</span></div>
+                  <input value={rEmail} onChange={e => setREmail(e.target.value)} type="email" placeholder="you@example.com" style={inputStyle} />
+                </div>
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:12, color:"#666", marginBottom:5 }}>Military affiliation</div>
+                  <input value={rAff} onChange={e => setRAff(e.target.value)} placeholder="e.g., Navy — active duty, retiring 2027" style={inputStyle} />
+                </div>
+                <div style={{ marginBottom:14 }}>
+                  <div style={{ fontSize:12, color:"#666", marginBottom:5 }}>Anything else? <span style={{ color:"#bbb" }}>(optional)</span></div>
+                  <textarea value={rNote} onChange={e => setRNote(e.target.value)} rows={3} placeholder="How you heard about Mahan, who referred you, etc." style={{ ...inputStyle, resize:"vertical" }} />
+                </div>
+
+                <input value={honeypot} onChange={e => setHoneypot(e.target.value)} tabIndex={-1} autoComplete="off"
+                  style={{ position:"absolute", left:"-9999px", width:1, height:1, opacity:0 }} aria-hidden="true" />
+
+                {reqError && <div style={{ fontSize:12, color:"#A32D2D", marginBottom:12 }}>{reqError}</div>}
+
+                <button onClick={submitRequest} disabled={submitting || !rEmail.trim()}
+                  style={{ width:"100%", fontSize:14, fontWeight:600, padding:"11px", borderRadius:9, border:"none", background:"#0a2342", color:"#fff", cursor:(submitting||!rEmail.trim())?"default":"pointer", opacity:(submitting||!rEmail.trim())?0.5:1 }}>
+                  {submitting ? "Sending…" : "Send request"}
+                </button>
+              </div>
+            )}
+
+          </div>
         </div>
 
-        {clientId && !sdkReady && <div style={{ fontSize:12, color:"#999" }}>Loading sign-in…</div>}
-        {verifying && <div style={{ fontSize:12, color:"#999" }}>Verifying…</div>}
-        {error && <div style={{ fontSize:12, color:"#A32D2D", marginTop:10 }}>{error}</div>}
+        <div style={{ textAlign:"center", fontSize:11, color:"#bbb", marginTop:14, letterSpacing:".05em" }}>Mahan · usemahan.com</div>
       </div>
     </div>
   );
