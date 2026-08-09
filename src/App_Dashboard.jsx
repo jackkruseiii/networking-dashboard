@@ -1994,7 +1994,7 @@ export default function NetworkingDashboard({ onNewport }) {
           {columns.map(col => (
             <div key={col.key} style={{ minWidth:0 }}>
               <div onClick={() => isMobile && setCollapsed(p => ({ ...p, [col.key]: !p[col.key] }))}
-                style={{ display:"flex", alignItems:"center", gap:8, marginBottom:collapsed[col.key]?0:14, paddingBottom:12, borderBottom:"0.5px solid #e8e8e4", background:isMobile?"#fff":"transparent", padding:isMobile?"10px 12px":"0 0 12px 0", borderRadius:isMobile?(collapsed[col.key]?10:"10px 10px 0 0"):0, border:isMobile?"0.5px solid #e0e0de":"none", borderBottom:"0.5px solid #e8e8e4", cursor:isMobile?"pointer":"default", userSelect:"none" }}>
+                style={{ display:"flex", alignItems:"center", gap:8, marginBottom:collapsed[col.key]?0:14, paddingBottom:12, background:isMobile?"#fff":"transparent", padding:isMobile?"10px 12px":"0 0 12px 0", borderRadius:isMobile?(collapsed[col.key]?10:"10px 10px 0 0"):0, border:isMobile?"0.5px solid #e0e0de":"none", borderBottom:"0.5px solid #e8e8e4", cursor:isMobile?"pointer":"default", userSelect:"none" }}>
                 <span style={{ fontSize:isMobile?16:14 }}>{col.icon}</span>
                 <span style={{ fontSize:isMobile?14:12, fontWeight:600, letterSpacing:".06em", textTransform:"uppercase", color:COL[col.key], flex:1 }}>{col.title}</span>
                 <span style={{ fontSize:12, background:"#f5f5f3", border:"0.5px solid #e0e0de", borderRadius:20, padding:"2px 9px", color:"#777" }}>{col.contacts.length}</span>
