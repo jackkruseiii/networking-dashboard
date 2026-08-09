@@ -1,6 +1,6 @@
 // api/draft.js — Vercel Serverless Function
-// Proxies LinkedIn message generation + profile parsing to the Anthropic API.
-// Requires a valid Google sign-in (Bearer credential) — no longer an open proxy.
+// Claude proxy for: LinkedIn message drafts, LinkedIn profile parsing (text),
+// and business-card scanning (image). Requires a valid Google sign-in.
 
 import { OAuth2Client } from "google-auth-library";
 
@@ -38,10 +38,21 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Reject anyone without a valid Google sign-in before spending API credits.
     await verifyGoogle(credential);
 
-    const { systemPrompt, userPrompt } = req.body;
+    const { systemPrompt, userPrompt, imageBase64, mediaType } = req.body || {};
+
+    // Build the user message: an image (business card) or plain text (drafts / LinkedIn parse).
+    let content;
+    if (imageBase64) {
+      const media = (typeof mediaType === "string" && mediaType.startsWith("image/")) ? mediaType : "image/jpeg";
+      content = [
+        { type: "image", source: { type: "base64", media_type: media, data: imageBase64 } },
+        { type: "text", text: userPrompt || "Extract the fields from this image and return ONLY the JSON object." },
+      ];
+    } else {
+      content = userPrompt;
+    }
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -54,17 +65,20 @@ export default async function handler(req, res) {
         model: "claude-haiku-4-5-20251001",
         max_tokens: 500,
         system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
+        messages: [{ role: "user", content }],
       }),
     });
 
     const data = await response.json();
-
     if (!response.ok) {
       return res.status(response.status).json({ error: data.error?.message || "Anthropic API error" });
     }
 
-    const text = data.content?.[0]?.text?.trim() || "";
+    const text = (data.content || [])
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("")
+      .trim();
+
     return res.status(200).json({ success: true, text });
 
   } catch (err) {
