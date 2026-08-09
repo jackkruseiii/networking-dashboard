@@ -1462,6 +1462,89 @@ function SettingsPanel({ settings, onClose, onSaved }) {
 }
 
 // ─── Main dashboard ───────────────────────────────────────────────────────
+function FeedbackModal({ onClose }) {
+  const [message,  setMessage]  = useState("");
+  const [category, setCategory] = useState("idea");
+  const [sending,  setSending]  = useState(false);
+  const [sent,     setSent]     = useState(false);
+  const [error,    setError]    = useState("");
+
+  async function send() {
+    if (!message.trim()) { setError("Add a note first."); return; }
+    setSending(true); setError("");
+    try {
+      const credential = getStoredCredential();
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(credential ? { "Authorization": `Bearer ${credential}` } : {}),
+        },
+        body: JSON.stringify({ message: message.trim(), category }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Couldn't send. Try again.");
+      setSent(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const small = typeof window !== "undefined" && window.innerWidth < 640;
+  const cats = [["idea", "💡 Idea"], ["bug", "🐞 Bug"], ["other", "💬 Other"]];
+
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:200, display:"flex", alignItems:small?"flex-end":"center", justifyContent:"center", padding:small?0:16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:small?"16px 16px 0 0":16, border:"0.5px solid #e0e0de", width:small?"100%":"min(460px,100%)", maxHeight:small?"92vh":"90vh", overflowY:"auto", padding:small?"20px 16px":24 }}>
+        <div style={{ display:"flex", alignItems:"flex-start", marginBottom:16 }}>
+          <div>
+            <div style={{ fontSize:19, fontWeight:600, marginBottom:3 }}>Send feedback</div>
+            <div style={{ fontSize:13, color:"#777" }}>Goes straight to Jack</div>
+          </div>
+          <button onClick={onClose} style={{ marginLeft:"auto", background:"transparent", border:"0.5px solid #ccc", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:12, color:"#666" }}>✕ Close</button>
+        </div>
+
+        {sent ? (
+          <div style={{ background:"#EAF3DE", border:"0.5px solid #c5e0a5", borderRadius:10, padding:"16px 18px", textAlign:"center" }}>
+            <div style={{ fontSize:15, fontWeight:600, color:"#3B6D11", marginBottom:4 }}>✓ Thank you</div>
+            <div style={{ fontSize:13, color:"#3B6D11", lineHeight:1.6 }}>Your feedback is on its way to Jack.</div>
+            <button onClick={onClose} style={{ marginTop:14, fontSize:13, fontWeight:500, padding:"8px 18px", borderRadius:8, border:"0.5px solid #c5e0a5", background:"#fff", color:"#3B6D11", cursor:"pointer" }}>Done</button>
+          </div>
+        ) : (
+          <>
+            <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+              {cats.map(([id, label]) => {
+                const active = category === id;
+                return (
+                  <button key={id} onClick={() => setCategory(id)}
+                    style={{ flex:1, fontSize:12, fontWeight:600, padding:"8px 6px", borderRadius:8, cursor:"pointer",
+                      border: active ? "1.5px solid #0a2342" : "0.5px solid #d8d8d4",
+                      background: active ? "#f0f4f9" : "#fff", color:"#1a1a18" }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <textarea value={message} onChange={e => setMessage(e.target.value)} rows={5}
+              placeholder="What's working, what's not, what you'd love to see…"
+              style={{ width:"100%", fontSize:14, padding:"10px 12px", border:"0.5px solid #d8d8d4", borderRadius:8, background:"#fff", color:"#222", fontFamily:"inherit", outline:"none", resize:"vertical", boxSizing:"border-box", marginBottom:12 }} />
+
+            {error && <div style={{ fontSize:12, color:"#A32D2D", marginBottom:12 }}>{error}</div>}
+
+            <button onClick={send} disabled={sending || !message.trim()}
+              style={{ width:"100%", fontSize:14, fontWeight:600, padding:"11px", borderRadius:9, border:"none", background:"#0a2342", color:"#fff", cursor:(sending||!message.trim())?"default":"pointer", opacity:(sending||!message.trim())?0.5:1 }}>
+              {sending ? "Sending…" : "Send feedback"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function InviteModal({ onClose }) {
   const [email,     setEmail]     = useState("");
   const [version,   setVersion]   = useState("personal");
@@ -1655,6 +1738,7 @@ export default function NetworkingDashboard({ onNewport }) {
   const [selectedType,    setSelectedType]    = useState(null);
   const [showNew,         setShowNew]         = useState(false);
   const [showInvite,      setShowInvite]      = useState(false);
+  const [showFeedback,    setShowFeedback]    = useState(false);
   const [query,           setQuery]           = useState("");
   const [regionFilter,    setRegionFilter]    = useState("");
   const [activeColFilter, setActiveColFilter] = useState("");
@@ -1859,6 +1943,10 @@ export default function NetworkingDashboard({ onNewport }) {
         <button onClick={() => setShowNew(true)} style={{ fontSize:13, fontWeight:500, padding:"7px 16px", borderRadius:8, border:"none", background:"#1a1a18", color:"#fff", cursor:"pointer", whiteSpace:"nowrap" }}>
           + New contact
         </button>
+        <button onClick={() => setShowFeedback(true)} title="Send feedback"
+          style={{ fontSize:13, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#555", cursor:"pointer" }}>
+          💬
+        </button>
         <button onClick={() => setShowSettings(true)} title="Settings"
           style={{ fontSize:13, padding:"7px 12px", borderRadius:8, border:"0.5px solid #e0e0de", background:"#fff", color:"#555", cursor:"pointer" }}>
           ⚙️
@@ -1949,6 +2037,10 @@ export default function NetworkingDashboard({ onNewport }) {
 
       {showInvite && (
         <InviteModal onClose={() => setShowInvite(false)} />
+      )}
+
+      {showFeedback && (
+        <FeedbackModal onClose={() => setShowFeedback(false)} />
       )}
 
       {showSettings && userSettings && (
