@@ -378,10 +378,10 @@ function GoogleSignInGate({ onUnlock }) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setReqError("Please enter a valid email address."); return; }
     setSubmitting(true); setReqError("");
     try {
-      const res = await fetch("/api/request-access", {
+      const res = await fetch("/api/notify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: rName, email, affiliation: rAff, note: rNote, website: honeypot }),
+        body: JSON.stringify({ type: "access-request", name: rName, email, affiliation: rAff, note: rNote, website: honeypot }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "Something went wrong. Please try again.");
@@ -912,7 +912,7 @@ Rules:
 - Put the person's job title in "notes"`;
 
   const credential = getStoredCredential();
-  const response = await fetch("/api/parse-card", {
+  const response = await fetch("/api/draft", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1474,13 +1474,13 @@ function FeedbackModal({ onClose }) {
     setSending(true); setError("");
     try {
       const credential = getStoredCredential();
-      const res = await fetch("/api/feedback", {
+      const res = await fetch("/api/notify", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(credential ? { "Authorization": `Bearer ${credential}` } : {}),
         },
-        body: JSON.stringify({ message: message.trim(), category }),
+        body: JSON.stringify({ type: "feedback", message: message.trim(), category }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "Couldn't send. Try again.");
