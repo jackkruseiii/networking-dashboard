@@ -47,8 +47,6 @@ export default async function handler(req, res) {
   }
 
   const {
-
-  const {
     SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY,
     ANTHROPIC_API_KEY,
@@ -115,7 +113,11 @@ async function sendDigestForUser(supabase, userSettings, ANTHROPIC_API_KEY, GMAI
     TRANSITION_YEAR:            userSettings.transition_year            || 2028,
     DIGEST_TO:                  userSettings.digest_email               || email,
     DISPLAY_NAME:               userSettings.display_name              || email.split("@")[0],
+    ORIENTATION:                userSettings.orientation               || "transition",
+    FOCUS_REGIONS:              (userSettings.focus_regions || "").split(",").map(x => x.trim()).filter(Boolean),
+    CURRENT_POST:               userSettings.current_post              || "",
   };
+  const isCareer = GOALS.ORIENTATION === "career";
 
     // ── 1. Fetch data from Supabase ────────────────────────────────────────
     const { data: rawContacts, error: ce } = await supabase
@@ -171,6 +173,11 @@ async function sendDigestForUser(supabase, userSettings, ANTHROPIC_API_KEY, GMAI
     function fd(d)  { return d.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }); }
     function daysAgo(n) { return new Date(TODAY.getTime() - n * 86400000); }
     function norm(s) { return (s || "").trim().toLowerCase(); }
+    function inFocus(c) {
+      if (!GOALS.FOCUS_REGIONS.length) return false;
+      const hay = norm((c.country || "") + " " + (c.region || ""));
+      return GOALS.FOCUS_REGIONS.some(r => hay.includes(norm(r)));
+    }
     function esc(s) {
       return String(s || "")
         .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -260,7 +267,14 @@ async function sendDigestForUser(supabase, userSettings, ANTHROPIC_API_KEY, GMAI
     const regionCount = contacts.filter(c => norm(c.region) === norm(GOALS.PRIORITY_REGION)).length;
     const sectorCount = contacts.filter(c => norm(c.industry).includes(norm(GOALS.PRIORITY_SECTOR))).length;
 
-    const scorecard = [
+    const focusCount = contacts.filter(c => inFocus(c)).length;
+    const scorecard = isCareer ? [
+      { label:"Network total",    value: contacts.length,  target:null, hit:true,                 detail: activeContacts.length + " active" },
+      { label:"In focus regions", value: focusCount,       target:null, hit:true,                 detail: (GOALS.FOCUS_REGIONS.join(", ") || "set focus regions").slice(0,42) },
+      { label:"Going cold now",   value: overdue.length,   target:0,    hit: overdue.length === 0, detail: "overdue " + GOALS.OVERDUE_DAYS + "d+", lowerIsBetter:true },
+      { label:"Cooling soon",     value: staleSoon.length, target:null, hit:true,                 detail: "approaching overdue" },
+      { label:"Reconnected (7d)", value: thisWeekCount,    target:null, hit: thisWeekCount > 0,   detail: "30-day avg " + weeklyAvg30 + "/wk" },
+    ] : [
       {
         label:  "Outreach this week",
         value:  thisWeekCount,
@@ -304,9 +318,14 @@ async function sendDigestForUser(supabase, userSettings, ANTHROPIC_API_KEY, GMAI
       let score = 0;
       if (c.daysSince !== null) score += c.daysSince;
       else if (c.ageDays != null) score += c.ageDays;
-      if (norm(c.region).includes(norm(GOALS.PRIORITY_REGION))) score += 40;
-      if (norm(c.industry).includes(norm(GOALS.PRIORITY_SECTOR))) score += 40;
-      if (GOALS.SECONDARY_SECTORS.some(s => norm(c.industry).includes(norm(s)))) score += 15;
+      if (isCareer) {
+        if (inFocus(c)) score += 50;
+        if (norm(c.category) === "military") score += 10;
+      } else {
+        if (norm(c.region).includes(norm(GOALS.PRIORITY_REGION))) score += 40;
+        if (norm(c.industry).includes(norm(GOALS.PRIORITY_SECTOR))) score += 40;
+        if (GOALS.SECONDARY_SECTORS.some(s => norm(c.industry).includes(norm(s)))) score += 15;
+      }
       if (c.friend) score += 20;
       if (c.touchCount > 2) score += 15;
       return score;
@@ -342,7 +361,7 @@ async function sendDigestForUser(supabase, userSettings, ANTHROPIC_API_KEY, GMAI
 
     // ── 9. AI analysis ────────────────────────────────────────────────────
     const scorecardText = scorecard.map(s =>
-      `- ${s.label}: ${s.value} (target ${s.lowerIsBetter ? "≤" : ""}${s.target}) — ${s.hit ? "ON TRACK" : "BEHIND"}. ${s.detail}`
+      `- ${s.label}: ${s.value}${s.target != null ? ` (target ${s.lowerIsBetter ? "≤" : ""}${s.target})` : ""} — ${s.hit ? "ON TRACK" : "NEEDS ATTENTION"}. ${s.detail}`
     ).join("\n");
 
     const priorityText = topPriority.length === 0
@@ -374,7 +393,46 @@ async function sendDigestForUser(supabase, userSettings, ANTHROPIC_API_KEY, GMAI
       ? "None this week."
       : newlyInactive.map(c => `- ${c.fn} ${c.ln} (${c.company}) — auto-moved to Inactive after 180+ days`).join("\n");
 
-    const aiPrompt = `You are the strategic advisor reviewing weekly networking activity for ${GOALS.DISPLAY_NAME}, a military officer transitioning to civilian life. They are targeting the ${GOALS.PRIORITY_REGION} area in ${GOALS.TRANSITION_YEAR}. Primary sector interest: ${GOALS.PRIORITY_SECTOR}. Secondary interests: ${GOALS.SECONDARY_SECTORS.join(", ")}. All outreach is remote — never suggest in-person meetings or coffee.
+    const aiPrompt = isCareer ? `You are the strategic advisor helping ${GOALS.DISPLAY_NAME}, a military Foreign Area Officer maintaining a professional network across a long career — they are NOT transitioning out. ${GOALS.CURRENT_POST ? "Current post: " + GOALS.CURRENT_POST + ". " : ""}Their network centers on these regions/countries: ${GOALS.FOCUS_REGIONS.join(", ") || "not yet specified"}. All outreach is remote — never suggest in-person meetings.
+
+CORE MISSION — read before recommending:
+- The goal is keeping a career-long international network warm across rotations and tours — host-nation counterparts, attachés, diplomats, and peers built up over many posts. There is no exit date and no sales quota.
+- The single most valuable thing you do is surface relationships that are quietly decaying: people who mattered, whom they have not touched in a long time, especially in their focus regions — before those relationships go cold for good.
+- Strongly prefer contacts in the focus regions and contacts with a real prior relationship (multiple past touches, friends, specific commitments). Deprioritize thin or one-off contacts.
+- Do NOT chase weekly volume for its own sake. A steady maintenance cadence beats bursts. Do not manufacture urgency where a relationship is genuinely on a slow, healthy simmer.
+
+NETWORK HEALTH (current standing):
+${scorecardText}
+
+ACTIVITY TREND:
+- Reconnected this week: ${thisWeekCount}
+- Last week: ${lastWeekCount}
+- 30-day average: ${weeklyAvg30}/week
+- 90-day average: ${weeklyAvg90}/week
+- Network size: ${contacts.length} total (${activeContacts.length} active, ${coldContacts.length} cold, ${contacts.filter(isInactive).length} inactive)
+
+MOST AT-RISK RELATIONSHIPS (ranked by time since last contact + focus-region fit + relationship depth):
+${priorityText}
+
+RECONNECTED THIS WEEK:
+${interactionsText}
+
+PRIOR 90 DAYS OF INTERACTIONS (context — unresolved threads, promised follow-ups, people cooling off):
+${last90Text}
+
+CONTACTS AUTO-MOVED TO INACTIVE THIS WEEK:
+${newlyInactiveText}
+
+Write a briefing with exactly these three sections, using these exact headers:
+
+ASSESSMENT
+Two or three sentences on the state of the network this week — is it being maintained, or is the cold list growing? Reference specific numbers. Be honest, not encouraging for its own sake.
+
+PATTERNS
+Two or three observations only visible across the full 90 days — a whole region going quiet, a key counterpart cooling off, promised follow-ups that never happened, a cadence slipping. This is the most valuable section: surface what a week-by-week view would miss.
+
+THIS WEEK
+Exactly 5 numbered actions, ranked most important first. Each must name a specific person and say concretely what to do and why that relationship is worth saving now. Strongly prefer people in the focus regions (${GOALS.FOCUS_REGIONS.join(", ") || "your key regions"}) and people with a real prior relationship going quiet. Never suggest generic CRM housekeeping — every action is a real human contact. One or two sentences each.` : `You are the strategic advisor reviewing weekly networking activity for ${GOALS.DISPLAY_NAME}, a military officer transitioning to civilian life. They are targeting the ${GOALS.PRIORITY_REGION} area in ${GOALS.TRANSITION_YEAR}. Primary sector interest: ${GOALS.PRIORITY_SECTOR}. Secondary interests: ${GOALS.SECONDARY_SECTORS.join(", ")}. All outreach is remote — never suggest in-person meetings or coffee.
 
 CRITICAL TRANSITION TIMELINE CONTEXT — read this before making any recommendations:
 - It is currently ${TODAY.toLocaleDateString("en-US", { month:"long", year:"numeric" })}. This person is ${GOALS.TRANSITION_YEAR - TODAY.getFullYear()} years from their transition year.
@@ -454,7 +512,7 @@ Exactly 5 numbered actions, ranked most important first. Each must name a specif
         <div style="flex:1;min-width:150px;background:${bg};border-radius:8px;padding:12px 14px;margin:0 6px 10px 0;">
           <div style="font-size:11px;color:#777;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">${esc(s.label)}</div>
           <div style="font-size:22px;font-weight:700;color:${color};line-height:1.1;">
-            ${s.value}<span style="font-size:13px;color:#999;font-weight:400;"> / ${s.lowerIsBetter ? "max " : ""}${s.target}</span>
+            ${s.value}${s.target != null ? `<span style="font-size:13px;color:#999;font-weight:400;"> / ${s.lowerIsBetter ? "max " : ""}${s.target}</span>` : ""}
           </div>
           <div style="font-size:11px;color:#777;margin-top:3px;">${esc(s.detail)}</div>
         </div>`;
@@ -536,9 +594,9 @@ Exactly 5 numbered actions, ranked most important first. Each must name a specif
 <div style="max-width:660px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e0e0da;">
 
   <div style="background:#0a2342;padding:24px 28px;">
-    <div style="font-size:11px;color:#c9a84c;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px;">Weekly Networking Digest</div>
+    <div style="font-size:11px;color:#c9a84c;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px;">${isCareer ? "Career Network Digest" : "Weekly Networking Digest"}</div>
     <div style="font-size:24px;font-weight:700;color:#fff;margin-bottom:4px;">Sunday Briefing</div>
-    <div style="font-size:13px;color:#8fadc8;">${dateStr} · ${GOALS.TRANSITION_YEAR - TODAY.getFullYear()} years to transition</div>
+    <div style="font-size:13px;color:#8fadc8;">${dateStr} · ${isCareer ? (GOALS.CURRENT_POST ? esc(GOALS.CURRENT_POST) : "Career network") : (GOALS.TRANSITION_YEAR - TODAY.getFullYear()) + " years to transition"}</div>
   </div>
 
   <div style="padding:20px 22px 6px 22px;background:#f9f9f7;border-bottom:1px solid #e8e8e4;">
