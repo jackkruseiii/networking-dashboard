@@ -1131,6 +1131,9 @@ function OnboardingWizard({ email, onComplete }) {
   const [saving, setSaving] = useState(false);
   const [form,   setForm]   = useState({
     display_name:             "",
+    orientation:              "transition",
+    current_post:             "",
+    focus_regions:            "",
     transition_year:          2028,
     priority_region:          "DFW",
     priority_sector:          "Education",
@@ -1149,133 +1152,184 @@ function OnboardingWizard({ email, onComplete }) {
 
   function set(k, v) { setForm(p => ({ ...p, [k]: v })); }
 
-  const steps = [
-    {
-      title: "Welcome to Mahan",
-      subtitle: "Let's set up your account in a few quick steps.",
-      content: (
+  const welcomeStep = {
+    title: "Welcome to Mahan",
+    subtitle: "Let's set up your account in a few quick steps.",
+    content: (
+      <div>
+        <div style={{ marginBottom:16 }}>
+          <label style={modalLbl}>Your name</label>
+          <input value={form.display_name} onChange={e => set("display_name", e.target.value)} placeholder="Jack" style={modalInp} />
+        </div>
         <div>
-          <div style={{ marginBottom:16 }}>
-            <label style={modalLbl}>Your name</label>
-            <input value={form.display_name} onChange={e => set("display_name", e.target.value)}
-              placeholder="Jack" style={modalInp} />
-          </div>
-          <div>
-            <label style={modalLbl}>Digest email address</label>
-            <input type="email" value={form.digest_email} onChange={e => set("digest_email", e.target.value)}
-              placeholder="you@gmail.com" style={modalInp} />
-            <div style={{ fontSize:11, color:"#999", marginTop:4 }}>Where your Sunday digest gets sent</div>
-          </div>
+          <label style={modalLbl}>Digest email address</label>
+          <input type="email" value={form.digest_email} onChange={e => set("digest_email", e.target.value)} placeholder="you@gmail.com" style={modalInp} />
+          <div style={{ fontSize:11, color:"#999", marginTop:4 }}>Where your Sunday digest gets sent</div>
         </div>
-      )
-    },
-    {
-      title: "Your transition timeline",
-      subtitle: "When and where are you heading?",
-      content: (
+      </div>
+    )
+  };
+
+  const orientationStep = {
+    title: "What should Mahan help you with?",
+    subtitle: "This shapes your weekly digest. You can change it anytime in Settings.",
+    content: (
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        {[
+          ["transition", "Building toward my transition", "Track contacts and ramp outreach toward a target exit year."],
+          ["career", "Managing my network while I keep serving", "Keep contacts across posts and tours warm over a long career."],
+        ].map(([id, label, desc]) => {
+          const active = form.orientation === id;
+          return (
+            <button key={id} onClick={() => set("orientation", id)}
+              style={{ textAlign:"left", padding:"14px 16px", borderRadius:12, cursor:"pointer",
+                border: active ? "2px solid #0a2342" : "0.5px solid #d8d8d4", background: active ? "#f0f4f9" : "#fff" }}>
+              <div style={{ fontSize:15, fontWeight:600, color:"#1a1a18", marginBottom:3 }}>{label}</div>
+              <div style={{ fontSize:13, color:"#777", lineHeight:1.5 }}>{desc}</div>
+            </button>
+          );
+        })}
+      </div>
+    )
+  };
+
+  const timelineStep = {
+    title: "Your transition timeline",
+    subtitle: "When and where are you heading?",
+    content: (
+      <div>
+        <div style={{ marginBottom:16 }}>
+          <label style={modalLbl}>Target retirement / transition year</label>
+          <input type="number" value={form.transition_year} onChange={e => set("transition_year", parseInt(e.target.value))} min={2024} max={2040} style={modalInp} />
+        </div>
         <div>
-          <div style={{ marginBottom:16 }}>
-            <label style={modalLbl}>Target retirement / transition year</label>
-            <input type="number" value={form.transition_year} onChange={e => set("transition_year", parseInt(e.target.value))}
-              min={2024} max={2040} style={modalInp} />
-          </div>
-          <div>
-            <label style={modalLbl}>Target region (city / metro area)</label>
-            <input value={form.priority_region} onChange={e => set("priority_region", e.target.value)}
-              placeholder="DFW, DC, Austin…" style={modalInp} />
-            <div style={{ fontSize:11, color:"#999", marginTop:4 }}>Your contacts in this region get priority weighting</div>
-          </div>
-          <div style={{ marginTop:16 }}>
-            <label style={modalLbl}>Region contact target</label>
-            <input type="number" value={form.region_target_count} onChange={e => set("region_target_count", parseInt(e.target.value))}
-              style={modalInp} />
-            <div style={{ fontSize:11, color:"#999", marginTop:4 }}>How many contacts you want in your target region by transition</div>
-          </div>
+          <label style={modalLbl}>Target region (city / metro area)</label>
+          <input value={form.priority_region} onChange={e => set("priority_region", e.target.value)} placeholder="DFW, DC, Austin…" style={modalInp} />
+          <div style={{ fontSize:11, color:"#999", marginTop:4 }}>Your contacts in this region get priority weighting</div>
         </div>
-      )
-    },
-    {
-      title: "Your target sector",
-      subtitle: "What kind of work are you heading toward?",
-      content: (
+        <div style={{ marginTop:16 }}>
+          <label style={modalLbl}>Region contact target</label>
+          <input type="number" value={form.region_target_count} onChange={e => set("region_target_count", parseInt(e.target.value))} style={modalInp} />
+          <div style={{ fontSize:11, color:"#999", marginTop:4 }}>How many contacts you want in your target region by transition</div>
+        </div>
+      </div>
+    )
+  };
+
+  const sectorStep = {
+    title: "Your target sector",
+    subtitle: "What kind of work are you heading toward?",
+    content: (
+      <div>
+        <div style={{ marginBottom:16 }}>
+          <label style={modalLbl}>Primary sector</label>
+          <input value={form.priority_sector} onChange={e => set("priority_sector", e.target.value)} placeholder="Education, Defense, Government…" style={modalInp} />
+        </div>
+        <div style={{ marginBottom:16 }}>
+          <label style={modalLbl}>Secondary sectors (comma separated)</label>
+          <input value={form.secondary_sectors.join(", ")}
+            onChange={e => set("secondary_sectors", e.target.value.split(",").map(s => s.trim()).filter(Boolean))}
+            placeholder="Defense, Consulting, Government" style={modalInp} />
+        </div>
         <div>
-          <div style={{ marginBottom:16 }}>
-            <label style={modalLbl}>Primary sector</label>
-            <input value={form.priority_sector} onChange={e => set("priority_sector", e.target.value)}
-              placeholder="Education, Defense, Government…" style={modalInp} />
-          </div>
-          <div style={{ marginBottom:16 }}>
-            <label style={modalLbl}>Secondary sectors (comma separated)</label>
-            <input value={form.secondary_sectors.join(", ")}
-              onChange={e => set("secondary_sectors", e.target.value.split(",").map(s => s.trim()).filter(Boolean))}
-              placeholder="Defense, Consulting, Government" style={modalInp} />
-          </div>
-          <div>
-            <label style={modalLbl}>Sector contact target</label>
-            <input type="number" value={form.sector_target_count} onChange={e => set("sector_target_count", parseInt(e.target.value))}
-              style={modalInp} />
-          </div>
+          <label style={modalLbl}>Sector contact target</label>
+          <input type="number" value={form.sector_target_count} onChange={e => set("sector_target_count", parseInt(e.target.value))} style={modalInp} />
         </div>
-      )
-    },
-    {
-      title: "Outreach goals",
-      subtitle: "Set your weekly networking targets.",
-      content: (
+      </div>
+    )
+  };
+
+  const outreachStep = {
+    title: "Outreach goals",
+    subtitle: "Set your weekly networking targets.",
+    content: (
+      <div>
+        <div style={{ marginBottom:16 }}>
+          <label style={modalLbl}>Weekly outreach target (interactions per week)</label>
+          <input type="number" value={form.weekly_outreach_target} onChange={e => set("weekly_outreach_target", parseInt(e.target.value))} min={1} max={50} style={modalInp} />
+        </div>
+        <div style={{ marginBottom:16 }}>
+          <label style={modalLbl}>Monthly new contacts target</label>
+          <input type="number" value={form.monthly_new_contact_target} onChange={e => set("monthly_new_contact_target", parseInt(e.target.value))} min={0} max={100} style={modalInp} />
+        </div>
+        <div style={{ marginBottom:16 }}>
+          <label style={modalLbl}>Overdue threshold (days without contact)</label>
+          <input type="number" value={form.overdue_days} onChange={e => set("overdue_days", parseInt(e.target.value))} min={7} max={365} style={modalInp} />
+        </div>
         <div>
-          <div style={{ marginBottom:16 }}>
-            <label style={modalLbl}>Weekly outreach target (interactions per week)</label>
-            <input type="number" value={form.weekly_outreach_target} onChange={e => set("weekly_outreach_target", parseInt(e.target.value))}
-              min={1} max={50} style={modalInp} />
-          </div>
-          <div style={{ marginBottom:16 }}>
-            <label style={modalLbl}>Monthly new contacts target</label>
-            <input type="number" value={form.monthly_new_contact_target} onChange={e => set("monthly_new_contact_target", parseInt(e.target.value))}
-              min={0} max={100} style={modalInp} />
-          </div>
-          <div style={{ marginBottom:16 }}>
-            <label style={modalLbl}>Overdue threshold (days without contact)</label>
-            <input type="number" value={form.overdue_days} onChange={e => set("overdue_days", parseInt(e.target.value))}
-              min={7} max={365} style={modalInp} />
-          </div>
-          <div>
-            <label style={modalLbl}>Early warning threshold (days)</label>
-            <input type="number" value={form.stale_soon_days} onChange={e => set("stale_soon_days", parseInt(e.target.value))}
-              min={7} max={365} style={modalInp} />
-            <div style={{ fontSize:11, color:"#999", marginTop:4 }}>Contacts approaching overdue get flagged at this point</div>
-          </div>
+          <label style={modalLbl}>Early warning threshold (days)</label>
+          <input type="number" value={form.stale_soon_days} onChange={e => set("stale_soon_days", parseInt(e.target.value))} min={7} max={365} style={modalInp} />
+          <div style={{ fontSize:11, color:"#999", marginTop:4 }}>Contacts approaching overdue get flagged at this point</div>
         </div>
-      )
-    },
-    {
-      title: "You're all set",
-      subtitle: "Your digest will be personalized to these goals every Sunday.",
-      content: (
-        <div style={{ background:"#f9f9f7", borderRadius:10, padding:"16px 18px" }}>
-          {[
-            ["Name", form.display_name || "—"],
-            ["Digest email", form.digest_email],
-            ["Transition year", form.transition_year],
-            ["Target region", form.priority_region + " (target: " + form.region_target_count + " contacts)"],
-            ["Primary sector", form.priority_sector + " (target: " + form.sector_target_count + " contacts)"],
-            ["Weekly outreach target", form.weekly_outreach_target + " interactions/week"],
-            ["Overdue threshold", form.overdue_days + " days"],
-          ].map(([label, value]) => (
-            <div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:"0.5px solid #e8e8e4", fontSize:13 }}>
-              <span style={{ color:"#999" }}>{label}</span>
-              <span style={{ fontWeight:500, color:"#1a1a18" }}>{value}</span>
-            </div>
-          ))}
+      </div>
+    )
+  };
+
+  const careerFocusStep = {
+    title: "Your post & network",
+    subtitle: "Where you are and where your network lives.",
+    content: (
+      <div>
+        <div style={{ marginBottom:16 }}>
+          <label style={modalLbl}>Current post</label>
+          <input value={form.current_post} onChange={e => set("current_post", e.target.value)} placeholder="e.g., Brasília, Bogotá…" style={modalInp} />
         </div>
-      )
-    },
-  ];
+        <div style={{ marginBottom:16 }}>
+          <label style={modalLbl}>Focus regions / countries</label>
+          <input value={form.focus_regions} onChange={e => set("focus_regions", e.target.value)} placeholder="Brazil, PACOM, Colombia…" style={modalInp} />
+          <div style={{ fontSize:11, color:"#999", marginTop:4 }}>Your digest watches for contacts in these areas going cold</div>
+        </div>
+        <div>
+          <label style={modalLbl}>Flag a contact as going cold after (days)</label>
+          <input type="number" value={form.overdue_days} onChange={e => set("overdue_days", parseInt(e.target.value))} min={7} max={365} style={modalInp} />
+        </div>
+      </div>
+    )
+  };
+
+  const summaryStep = {
+    title: "You're all set",
+    subtitle: form.orientation === "career"
+      ? "Your digest will keep your network warm every Sunday."
+      : "Your digest will be personalized to these goals every Sunday.",
+    content: (
+      <div style={{ background:"#f9f9f7", borderRadius:10, padding:"16px 18px" }}>
+        {(form.orientation === "career"
+          ? [
+              ["Name", form.display_name || "—"],
+              ["Digest email", form.digest_email],
+              ["Mode", "Career — network maintenance"],
+              ["Current post", form.current_post || "—"],
+              ["Focus regions", form.focus_regions || "—"],
+              ["Cold flag", form.overdue_days + " days"],
+            ]
+          : [
+              ["Name", form.display_name || "—"],
+              ["Digest email", form.digest_email],
+              ["Mode", "Transition"],
+              ["Transition year", form.transition_year],
+              ["Target region", form.priority_region + " (target: " + form.region_target_count + ")"],
+              ["Primary sector", form.priority_sector],
+              ["Weekly outreach", form.weekly_outreach_target + "/week"],
+            ]
+        ).map(([label, value]) => (
+          <div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:"0.5px solid #e8e8e4", fontSize:13 }}>
+            <span style={{ color:"#999" }}>{label}</span>
+            <span style={{ fontWeight:500, color:"#1a1a18" }}>{value}</span>
+          </div>
+        ))}
+      </div>
+    )
+  };
+
+  const steps = form.orientation === "career"
+    ? [welcomeStep, orientationStep, careerFocusStep, summaryStep]
+    : [welcomeStep, orientationStep, timelineStep, sectorStep, outreachStep, summaryStep];
 
   async function finish() {
     setSaving(true);
     await saveSettings({ ...form, onboarding_complete: true });
     setSaving(false);
-    // Update localStorage session
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -1284,8 +1338,8 @@ function OnboardingWizard({ email, onComplete }) {
     onComplete(form);
   }
 
-  const current = steps[step];
-  const isLast  = step === steps.length - 1;
+  const current = steps[step] || steps[steps.length - 1];
+  const isLast  = step >= steps.length - 1;
 
   return (
     <div style={{ minHeight:"100vh", background:"#fafaf8", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif", padding:16 }}>
@@ -1382,6 +1436,36 @@ function SettingsPanel({ settings, onClose, onSaved }) {
         </div>
 
         <div style={sectionStyle}>
+          <div style={headStyle}>Mode</div>
+          <div style={{ display:"flex", gap:8 }}>
+            {[["transition","Transition","Ramp toward a dated exit"],["career","Career","Keep your network warm while serving"]].map(([id,label,hint]) => {
+              const active = (form.orientation || "transition") === id;
+              return (
+                <button key={id} onClick={() => set("orientation", id)}
+                  style={{ flex:1, textAlign:"left", padding:"10px 12px", borderRadius:9, cursor:"pointer",
+                    border: active ? "1.5px solid #0a2342" : "0.5px solid #d8d8d4", background: active ? "#f0f4f9" : "#fff" }}>
+                  <div style={{ fontSize:13, fontWeight:600, color:"#1a1a18" }}>{label}</div>
+                  <div style={{ fontSize:11, color:"#888", marginTop:2 }}>{hint}</div>
+                </button>
+              );
+            })}
+          </div>
+          {form.orientation === "career" && (
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:12 }}>
+              <div>
+                <label style={detailLbl}>Current post</label>
+                <input value={form.current_post||""} onChange={e => set("current_post", e.target.value)} placeholder="e.g., Brasília" style={detailInp} />
+              </div>
+              <div>
+                <label style={detailLbl}>Focus regions / countries</label>
+                <input value={form.focus_regions||""} onChange={e => set("focus_regions", e.target.value)} placeholder="Brazil, PACOM…" style={detailInp} />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {form.orientation !== "career" && (<>
+        <div style={sectionStyle}>
           <div style={headStyle}>Transition timeline</div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
             <div>
@@ -1418,6 +1502,8 @@ function SettingsPanel({ settings, onClose, onSaved }) {
             </div>
           </div>
         </div>
+
+        </>)}
 
         <div style={sectionStyle}>
           <div style={headStyle}>Outreach goals</div>
