@@ -58,6 +58,7 @@ export default async function handler(req, res) {
         "overdue_days", "stale_soon_days",
         "cold_max_age_days", "cold_backlog_ceiling",
         "digest_enabled", "onboarding_complete",
+        "orientation", "focus_regions", "current_post",
       ];
 
       const filtered = Object.fromEntries(
