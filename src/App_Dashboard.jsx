@@ -254,6 +254,12 @@ function mapSupabaseRow(row) {
     notesDoc:    String(row.notes_doc     || ""),
     region:      String(row.target_region || ""),
     friend:      row.is_friend === true,
+    country:     String(row.country      || ""),
+    branch:      String(row.branch       || ""),
+    category:    String(row.category     || ""),
+    metContext:  String(row.met_context  || ""),
+    languages:   String(row.languages    || ""),
+    rankTitle:   String(row.rank_title   || ""),
   };
 }
 
@@ -644,7 +650,7 @@ function DetailSelectField({ label, k, options, form, setForm, editing }) {
 }
 
 // ─── Detail / Edit panel ──────────────────────────────────────────────────
-function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessionNotes, setSessionNotes }) {
+function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessionNotes, setSessionNotes, career }) {
   const [editing,           setEditing]           = useState(false);
   const [form,              setForm]              = useState({ ...c });
   const [saving,            setSaving]            = useState(false);
@@ -781,6 +787,14 @@ function DetailPanel({ c, type, onClose, onSaved, onDeleted, interactions, sessi
             <DetailField label="Next check-in" k="nc"          type="date" form={form} setForm={setForm} editing={editing} />
             <DetailField label="Notes Doc URL" k="notesDoc"    form={form} setForm={setForm} editing={editing} />
             <DetailField label="Target Region" k="region"      form={form} setForm={setForm} editing={editing} />
+            {career && (<>
+            <DetailField label="Country"           k="country"    form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Service / branch"  k="branch"     form={form} setForm={setForm} editing={editing} />
+            <DetailSelectField label="Category"    k="category"   options={["","Military","Diplomatic","Government","Business","Academia","Other"]} form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Where met / tour"  k="metContext" form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Language(s)"       k="languages"  form={form} setForm={setForm} editing={editing} />
+            <DetailField label="Rank / title"      k="rankTitle"  form={form} setForm={setForm} editing={editing} />
+            </>)}
           </div>
           {editing && (
             <div style={{ marginTop:10 }}>
@@ -960,8 +974,8 @@ function fileToResizedBase64(file, maxDim = 1568, quality = 0.82) {
   });
 }
 
-function NewContactModal({ onClose, onAdd }) {
-  const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", officePhone:"", mobilePhone:"", ug:"", grad:"", lc:"", nc:"", notes:"", notesDoc:"", region:"", friend:false };
+function NewContactModal({ onClose, onAdd, career }) {
+  const empty = { fn:"", ln:"", company:"", industry:"", rel:"", status:"Never Contacted", city:"", state:"", linkedin:"", email:"", officePhone:"", mobilePhone:"", ug:"", grad:"", lc:"", nc:"", notes:"", notesDoc:"", region:"", friend:false, country:"", branch:"", category:"", metContext:"", languages:"", rankTitle:"" };
   const [form,    setForm]    = useState(empty);
   const [errors,  setErrors]  = useState({});
   const [syncing, setSyncing] = useState(false);
@@ -1079,6 +1093,25 @@ function NewContactModal({ onClose, onAdd }) {
           <ModalField label="Next check-in" k="nc"          type="date"                                form={form} set={set} errors={errors} />
           <ModalField label="Notes Doc URL" k="notesDoc"    type="url" placeholder="https://docs.google.com/…" form={form} set={set} errors={errors} />
           <ModalField label="Target Region" k="region"      placeholder="DFW, Newport…"                form={form} set={set} errors={errors} />
+          {career && (<>
+          <ModalField label="Country"          k="country"    placeholder="Brazil, Indonesia…"    form={form} set={set} errors={errors} />
+          <ModalField label="Service / branch" k="branch"     placeholder="US Army, PLA Navy…"     form={form} set={set} errors={errors} />
+          <div style={{ display:"flex", flexDirection:"column" }}>
+            <label style={modalLbl}>Category</label>
+            <select value={form.category} onChange={e => set("category", e.target.value)} style={{ ...modalInp, cursor:"pointer" }}>
+              <option value="">—</option>
+              <option value="Military">Military</option>
+              <option value="Diplomatic">Diplomatic</option>
+              <option value="Government">Government</option>
+              <option value="Business">Business</option>
+              <option value="Academia">Academia</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <ModalField label="Where you met / tour" k="metContext" placeholder="Manila tour, PACOM conf…" form={form} set={set} errors={errors} />
+          <ModalField label="Language(s)"      k="languages"  placeholder="Portuguese, Spanish…"   form={form} set={set} errors={errors} />
+          <ModalField label="Rank / title"     k="rankTitle"  placeholder="COL, Attaché…"          form={form} set={set} errors={errors} />
+          </>)}
           <div style={{ gridColumn:"1/-1", display:"flex", flexDirection:"column" }}>
             <label style={modalLbl}>Notes</label>
             <textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="How you know them, talking points…" rows={3}
@@ -2102,7 +2135,7 @@ export default function NetworkingDashboard({ onNewport }) {
       )}
 
       {selected && (
-        <DetailPanel c={selected} type={selectedType}
+        <DetailPanel c={selected} type={selectedType} career={userSettings?.orientation === "career"}
           onClose={() => { setSelected(null); setSelectedType(null); }}
           interactions={interactions}
           onSaved={updated => { setContacts(prev => prev.map(c => c.id === updated.id ? updated : c)); setSelected(updated); }}
@@ -2118,7 +2151,7 @@ export default function NetworkingDashboard({ onNewport }) {
       )}
 
       {showNew && (
-        <NewContactModal onClose={() => setShowNew(false)} onAdd={c => setContacts(p => [...p, c])} />
+        <NewContactModal onClose={() => setShowNew(false)} onAdd={c => setContacts(p => [...p, c])} career={userSettings?.orientation === "career"} />
       )}
 
       {showInvite && (
