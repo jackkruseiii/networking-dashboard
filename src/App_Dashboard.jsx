@@ -1848,6 +1848,7 @@ export default function NetworkingDashboard({ onNewport }) {
   const [showSettings,     setShowSettings]     = useState(false);
   const unlocked = !!userEmail;
   const isAdmin = ADMIN_EMAILS.includes((userEmail || "").toLowerCase());
+  const career = userSettings?.orientation === "career";
   const [contacts,        setContacts]        = useState([]);
   const [interactions,    setInteractions]    = useState([]);
   const [loading,         setLoading]         = useState(true);
@@ -1860,6 +1861,9 @@ export default function NetworkingDashboard({ onNewport }) {
   const [showFeedback,    setShowFeedback]    = useState(false);
   const [query,           setQuery]           = useState("");
   const [regionFilter,    setRegionFilter]    = useState("");
+  const [countryFilter,   setCountryFilter]   = useState("");
+  const [branchFilter,    setBranchFilter]    = useState("");
+  const [categoryFilter,  setCategoryFilter]  = useState("");
   const [activeColFilter, setActiveColFilter] = useState("");
   const [sessionNotes,    setSessionNotes]    = useState({});
 
@@ -1956,10 +1960,18 @@ export default function NetworkingDashboard({ onNewport }) {
     return Array.from(set).sort();
   }, [contacts]);
 
+  const careerOptions = useMemo(() => {
+    const uniq = (k) => Array.from(new Set(contacts.map(c => c[k]).filter(Boolean))).sort();
+    return { countries: uniq("country"), branches: uniq("branch"), categories: uniq("category") };
+  }, [contacts]);
+
   const { cold, overdue, active, inactive } = useMemo(() => {
     const q    = query.toLowerCase().trim();
     let list   = q ? contacts.filter(c => [c.fn,c.ln,c.company,c.industry,c.rel,c.city,c.state,c.notes].join(" ").toLowerCase().includes(q)) : contacts;
     if (regionFilter) list = list.filter(c => c.region === regionFilter);
+    if (countryFilter)  list = list.filter(c => c.country  === countryFilter);
+    if (branchFilter)   list = list.filter(c => c.branch   === branchFilter);
+    if (categoryFilter) list = list.filter(c => c.category === categoryFilter);
     const norm = s => (s || "").trim().toLowerCase();
     const cold     = list.filter(c => norm(c.status) === "never contacted");
     const inactive = list.filter(c => norm(c.status) === "inactive").sort((a,b) => new Date(b.lc) - new Date(a.lc));
@@ -1967,7 +1979,7 @@ export default function NetworkingDashboard({ onNewport }) {
     const overdue  = allAct.filter(c => { const d=pd(c.lc); return d && ds(d)>=THRESHOLD; }).sort((a,b) => new Date(a.lc) - new Date(b.lc));
     const active   = allAct.filter(c => { const d=pd(c.lc); return !d||ds(d)<THRESHOLD; }).sort((a,b) => new Date(b.lc) - new Date(a.lc));
     return { cold, overdue, active, inactive };
-  }, [contacts, query, regionFilter]);
+  }, [contacts, query, regionFilter, countryFilter, branchFilter, categoryFilter]);
 
   const columns = [
     { key:"active",   title:"Active",        icon:"✅", contacts:active   },
@@ -2033,6 +2045,27 @@ export default function NetworkingDashboard({ onNewport }) {
             {regionOptions.map(r => <option key={r} value={r}>🎯 {r} only</option>)}
           </select>
         )}
+        {career && careerOptions.countries.length > 0 && (
+          <select value={countryFilter} onChange={e => setCountryFilter(e.target.value)}
+            style={{ fontSize:13, padding:"7px 10px", borderRadius:8, border:countryFilter?"1px solid #0a66c2":"0.5px solid #e0e0de", background:countryFilter?"#f0f6fb":"#f9f9f7", color:countryFilter?"#0a66c2":"#555", fontFamily:"inherit", outline:"none", cursor:"pointer", fontWeight:countryFilter?600:400 }}>
+            <option value="">🌍 All countries</option>
+            {careerOptions.countries.map(v => <option key={v} value={v}>🌍 {v}</option>)}
+          </select>
+        )}
+        {career && careerOptions.branches.length > 0 && (
+          <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)}
+            style={{ fontSize:13, padding:"7px 10px", borderRadius:8, border:branchFilter?"1px solid #0a66c2":"0.5px solid #e0e0de", background:branchFilter?"#f0f6fb":"#f9f9f7", color:branchFilter?"#0a66c2":"#555", fontFamily:"inherit", outline:"none", cursor:"pointer", fontWeight:branchFilter?600:400 }}>
+            <option value="">🎖️ All branches</option>
+            {careerOptions.branches.map(v => <option key={v} value={v}>🎖️ {v}</option>)}
+          </select>
+        )}
+        {career && careerOptions.categories.length > 0 && (
+          <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
+            style={{ fontSize:13, padding:"7px 10px", borderRadius:8, border:categoryFilter?"1px solid #0a66c2":"0.5px solid #e0e0de", background:categoryFilter?"#f0f6fb":"#f9f9f7", color:categoryFilter?"#0a66c2":"#555", fontFamily:"inherit", outline:"none", cursor:"pointer", fontWeight:categoryFilter?600:400 }}>
+            <option value="">🏷️ All categories</option>
+            {careerOptions.categories.map(v => <option key={v} value={v}>🏷️ {v}</option>)}
+          </select>
+        )}
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
           {columns.map(col => {
             const isActive = activeColFilter === col.key;
@@ -2076,11 +2109,14 @@ export default function NetworkingDashboard({ onNewport }) {
         </button>
       </div>
 
-      {(query || regionFilter || activeColFilter) && (
+      {(query || regionFilter || countryFilter || branchFilter || categoryFilter || activeColFilter) && (
         <div style={{ padding:isMobile?"0 12px 12px":"0 24px 12px", fontSize:12, color:"#999" }}>
           Showing {cold.length+overdue.length+active.length+inactive.length} of {contacts.length} contacts
           {query && ` for "${query}"`}
           {regionFilter && <span> · 🎯 <strong style={{color:"#0a66c2"}}>{regionFilter}</strong></span>}
+          {countryFilter && <span> · 🌍 <strong style={{color:"#0a66c2"}}>{countryFilter}</strong></span>}
+          {branchFilter && <span> · 🎖️ <strong style={{color:"#0a66c2"}}>{branchFilter}</strong></span>}
+          {categoryFilter && <span> · 🏷️ <strong style={{color:"#0a66c2"}}>{categoryFilter}</strong></span>}
           {activeColFilter && <span> · filtered to <strong style={{color:COL[activeColFilter]}}>{columns.find(c=>c.key===activeColFilter)?.title}</strong></span>}
         </div>
       )}
