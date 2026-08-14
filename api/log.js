@@ -85,6 +85,12 @@ export default async function handler(req, res) {
           notes:         data.notes       || "",
           notes_doc:     data.notesDoc    || "",
           target_region: data.region      || "",
+          country:       data.country     || "",
+          branch:        data.branch      || "",
+          category:      data.category    || "",
+          met_context:   data.metContext  || "",
+          languages:     data.languages   || "",
+          rank_title:    data.rankTitle   || "",
           is_friend:     data.friend      || false,
         });
       if (error) throw error;
