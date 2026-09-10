@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Field Notes · Mahan</title>
+<meta name="description" content="Curated resources for the military-to-civilian transition — shared via Mahan.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0a2342; --navy2:#122f56; --gold:#c9a84c; --cream:#faf9f5;
+    --ink:#1e2229; --mute:#5c636d; --line:#e7e4db; --lblue:#8fadc8;
+    --serif:"Fraunces",Georgia,"Times New Roman",serif;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--cream);color:var(--ink);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:inherit}
+  .wrap{max-width:940px;margin:0 auto;padding:0 24px}
+
+  /* Hero */
+  header{background:var(--navy);color:#fff;padding:64px 0 56px}
+  .kicker{font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:18px}
+  header h1{font-family:var(--serif);font-weight:900;font-size:clamp(44px,8vw,72px);line-height:1;margin:0 0 16px}
+  header .sub{font-size:clamp(16px,2.4vw,19px);color:var(--lblue);max-width:600px;margin:0;line-height:1.5}
+  .rule{width:56px;height:3px;background:var(--gold);margin:26px 0 0}
+
+  /* Cards */
+  main{padding:48px 0 24px}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  @media (max-width:720px){.cards{grid-template-columns:1fr}}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:28px 26px 26px;
+        display:flex;flex-direction:column;position:relative;overflow:hidden;
+        transition:transform .16s ease, box-shadow .16s ease}
+  .card:hover{transform:translateY(-3px);box-shadow:0 14px 34px rgba(10,35,66,.10)}
+  .card::before{content:"";position:absolute;top:0;left:0;right:0;height:4px;background:var(--gold)}
+  .tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+       color:var(--navy);background:#eef2f8;border:1px solid #d8e2ef;border-radius:6px;padding:4px 9px;align-self:flex-start;margin-bottom:16px}
+  .card h2{font-family:var(--serif);font-weight:600;font-size:27px;color:var(--navy);margin:0 0 10px}
+  .card p{color:var(--mute);font-size:15px;margin:0 0 16px;flex:1}
+  .meta{font-size:12.5px;color:#9a9a92;letter-spacing:.02em;margin-bottom:20px}
+  .btns{display:flex;gap:10px}
+  .btn{font-family:var(--sans);font-size:14px;font-weight:600;text-decoration:none;padding:10px 20px;border-radius:9px;cursor:pointer;transition:background .15s,color .15s}
+  .btn.primary{background:var(--navy);color:#fff;border:1px solid var(--navy)}
+  .btn.primary:hover{background:var(--navy2)}
+  .btn.ghost{background:#fff;color:var(--navy);border:1px solid #cfd6df}
+  .btn.ghost:hover{border-color:var(--navy)}
+
+  /* Footer */
+  footer{border-top:1px solid var(--line);margin-top:40px;padding:26px 0 48px;color:#9a9a92;font-size:13px}
+  footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center}
+  footer a{color:var(--navy);font-weight:600;text-decoration:none;border-bottom:1px solid var(--gold)}
+  .wm{font-family:var(--serif);color:var(--navy);font-weight:600}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="kicker">⚓ Mahan</div>
+    <h1>Field Notes</h1>
+    <p class="sub">A short shelf of hard-won resources for the military-to-civilian transition. Free to read — no sign-in required.</p>
+    <div class="rule"></div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="cards">
+
+      <article class="card">
+        <span class="tag">Field Guide</span>
+        <h2>Snack's List</h2>
+        <p>A curated guide to the people, programs, and resources worth knowing for the transition — 55 vetted links with candid notes on what actually works.</p>
+        <div class="meta">Field guide · 7 pages · 55 links</div>
+        <div class="btns">
+          <a class="btn primary" href="snacks-list.pdf" target="_blank" rel="noopener">View</a>
+          <a class="btn ghost" href="snacks-list.pdf" download>Download</a>
+        </div>
+      </article>
+
+      <article class="card">
+        <span class="tag">Working Template</span>
+        <h2>The Networking Meeting</h2>
+        <p>A 20-minute meeting template you can run — and complete with AI — for every coffee, call, and connection. Includes a copy-paste prompt and the full playbook.</p>
+        <div class="meta">Template · 5 pages · AI prompt included</div>
+        <div class="btns">
+          <a class="btn primary" href="networking-meeting.pdf" target="_blank" rel="noopener">View</a>
+          <a class="btn ghost" href="networking-meeting.pdf" download>Download</a>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span><span class="wm">Mahan</span> · usemahan.com</span>
+    <span><a href="/">← Back to the app</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
