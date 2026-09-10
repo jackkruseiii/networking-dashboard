@@ -20,5 +20,13 @@
       "path": "/api/backup",
       "schedule": "0 10 * * *"
     }
+  ],
+  "headers": [
+    {
+      "source": "/library/(.*).pdf",
+      "headers": [
+        { "key": "Content-Disposition", "value": "inline" }
+      ]
+    }
   ]
 }
