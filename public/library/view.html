@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Reader · Mahan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0a2342; --navy2:#122f56; --gold:#c9a84c; --cream:#faf9f5;
+    --ink:#1e2229; --mute:#5c636d; --line:#e7e4db; --lblue:#8fadc8;
+    --serif:"Fraunces",Georgia,"Times New Roman",serif;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--cream);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+  a{color:inherit}
+
+  /* Top bar */
+  .bar{position:sticky;top:0;z-index:10;background:var(--navy);color:#fff;
+       display:flex;align-items:center;gap:16px;padding:12px 20px;
+       box-shadow:0 2px 14px rgba(10,35,66,.25)}
+  .bar .brand{font-family:var(--serif);font-weight:600;font-size:18px;white-space:nowrap}
+  .bar .brand .gold{color:var(--gold)}
+  .bar .title{color:var(--lblue);font-size:14px;font-weight:500;
+              overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  .bar .actions{display:flex;gap:9px;flex-shrink:0}
+  .abtn{font-size:13px;font-weight:600;text-decoration:none;padding:8px 14px;border-radius:8px;
+        white-space:nowrap;transition:background .15s,color .15s,border-color .15s}
+  .abtn.gold{background:var(--gold);color:var(--navy);border:1px solid var(--gold)}
+  .abtn.gold:hover{background:#d8bb64}
+  .abtn.ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35)}
+  .abtn.ghost:hover{border-color:#fff}
+  @media (max-width:620px){
+    .bar{flex-wrap:wrap;gap:10px}
+    .bar .title{order:3;flex-basis:100%;white-space:normal}
+  }
+
+  /* Reader */
+  .reader{max-width:940px;margin:0 auto;padding:26px 16px 60px}
+  .page{background:#fff;border:1px solid var(--line);border-radius:6px;
+        box-shadow:0 8px 24px rgba(10,35,66,.08);margin:0 auto 22px;display:block;max-width:100%}
+  .status{text-align:center;color:var(--mute);font-size:15px;padding:60px 20px}
+  .status .spin{width:34px;height:34px;border:3px solid #d9d5c9;border-top-color:var(--navy);
+        border-radius:50%;margin:0 auto 16px;animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .fallback{max-width:520px;margin:40px auto;background:#fff;border:1px solid var(--line);
+        border-radius:14px;padding:28px 26px;text-align:center}
+  .fallback h2{font-family:var(--serif);color:var(--navy);margin:0 0 10px;font-size:22px}
+  .fallback p{color:var(--mute);font-size:15px;margin:0 0 18px}
+  .fallback a{display:inline-block;background:var(--navy);color:#fff;text-decoration:none;
+        font-weight:600;font-size:14px;padding:11px 22px;border-radius:9px}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <span class="brand">⚓ <span class="gold">Mahan</span></span>
+  <span class="title" id="docTitle">Loading…</span>
+  <span class="actions">
+    <a class="abtn gold" id="dlBtn" href="#" download>Download</a>
+    <a class="abtn ghost" href="/library">← Library</a>
+  </span>
+</div>
+
+<div class="reader" id="reader">
+  <div class="status" id="status"><div class="spin"></div>Opening document…</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script>
+(function () {
+  // Document registry — clean links like view.html?doc=snacks
+  var DOCS = {
+    snacks:  { file: "/library/Snacks_List.pdf",         title: "Snack's List" },
+    meeting: { file: "/library/networking-meeting.pdf",  title: "The Networking Meeting" }
+  };
+
+  var params = new URLSearchParams(location.search);
+  var key = params.get("doc");
+  var entry = (key && DOCS[key]) ? DOCS[key] : null;
+  // Generic fallback: view.html?file=/library/x.pdf&title=Whatever
+  if (!entry && params.get("file")) {
+    entry = { file: params.get("file"), title: params.get("title") || "Document" };
+  }
+
+  var reader = document.getElementById("reader");
+  var statusEl = document.getElementById("status");
+  var titleEl = document.getElementById("docTitle");
+  var dlBtn = document.getElementById("dlBtn");
+
+  function fail(msg, file) {
+    reader.innerHTML =
+      '<div class="fallback"><h2>Can\u2019t display this here</h2>' +
+      '<p>' + msg + '</p>' +
+      (file ? '<a href="' + file + '" target="_blank" rel="noopener">Open the PDF directly</a>' : '') +
+      '</div>';
+  }
+
+  if (!entry) {
+    titleEl.textContent = "Not found";
+    fail("No document was specified. Head back to the library and pick one.", "/library");
+    return;
+  }
+
+  document.title = entry.title + " · Mahan";
+  titleEl.textContent = entry.title;
+  dlBtn.setAttribute("href", entry.file);
+
+  if (!window.pdfjsLib) {
+    fail("The in-page reader couldn\u2019t load. You can still open the file directly.", entry.file);
+    return;
+  }
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+
+  var DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+  function renderAll(pdf) {
+    reader.innerHTML = "";
+    var containerWidth = Math.min(reader.clientWidth, 900);
+    var chain = Promise.resolve();
+    for (var n = 1; n <= pdf.numPages; n++) {
+      (function (pageNum) {
+        chain = chain.then(function () {
+          return pdf.getPage(pageNum).then(function (page) {
+            var base = page.getViewport({ scale: 1 });
+            var cssScale = containerWidth / base.width;
+            var viewport = page.getViewport({ scale: cssScale * DPR });
+            var canvas = document.createElement("canvas");
+            canvas.className = "page";
+            canvas.width = Math.floor(viewport.width);
+            canvas.height = Math.floor(viewport.height);
+            canvas.style.width = Math.floor(viewport.width / DPR) + "px";
+            canvas.style.height = Math.floor(viewport.height / DPR) + "px";
+            reader.appendChild(canvas);
+            return page.render({
+              canvasContext: canvas.getContext("2d"),
+              viewport: viewport
+            }).promise;
+          });
+        });
+      })(n);
+    }
+    return chain;
+  }
+
+  pdfjsLib.getDocument(entry.file).promise
+    .then(renderAll)
+    .catch(function (err) {
+      console.error(err);
+      fail("Something went wrong opening this document. You can still open it directly.", entry.file);
+    });
+
+  // Re-render on significant resize so pages stay crisp/fit
+  var rt;
+  window.addEventListener("resize", function () {
+    clearTimeout(rt);
+    rt = setTimeout(function () {
+      if (!reader.querySelector("canvas")) return;
+      pdfjsLib.getDocument(entry.file).promise.then(renderAll).catch(function(){});
+    }, 350);
+  });
+})();
+</script>
+
+</body>
+</html>
