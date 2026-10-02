@@ -42,8 +42,13 @@
 
   /* Reader */
   .reader{max-width:940px;margin:0 auto;padding:26px 16px 60px}
-  .page{background:#fff;border:1px solid var(--line);border-radius:6px;
-        box-shadow:0 8px 24px rgba(10,35,66,.08);margin:0 auto 22px;display:block;max-width:100%}
+  .pagewrap{position:relative;background:#fff;border:1px solid var(--line);border-radius:6px;
+        box-shadow:0 8px 24px rgba(10,35,66,.08);margin:0 auto 22px;max-width:100%}
+  .pagewrap canvas{display:block;width:100%;height:auto;border-radius:6px}
+  /* Clickable link layer drawn over each page (PDF link annotations) */
+  .lnk{position:absolute;display:block;border-radius:2px;cursor:pointer;
+       -webkit-tap-highlight-color:rgba(201,168,76,.25);transition:background .12s}
+  .lnk:hover,.lnk:focus-visible{background:rgba(201,168,76,.20);outline:none}
   .status{text-align:center;color:var(--mute);font-size:15px;padding:60px 20px}
   .status .spin{width:34px;height:34px;border:3px solid #d9d5c9;border-top-color:var(--navy);
         border-radius:50%;margin:0 auto 16px;animation:sp 1s linear infinite}
@@ -107,7 +112,7 @@
     return;
   }
 
-  document.title = entry.title + " · Mahan";
+  document.title = entry.title + " \u00b7 Mahan";
   titleEl.textContent = entry.title;
   dlBtn.setAttribute("href", entry.file);
 
@@ -121,9 +126,43 @@
 
   var DPR = Math.min(window.devicePixelRatio || 1, 2);
 
+  // Usable page width = reader content width (excluding its padding), capped at 900px
+  function contentWidth() {
+    var cs = getComputedStyle(reader);
+    var pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    return Math.max(280, Math.min(reader.clientWidth - pad, 900));
+  }
+
+  // Only http(s) and mailto links are made clickable
+  function safeUrl(u) {
+    return typeof u === "string" && /^(https?:|mailto:)/i.test(u);
+  }
+
+  // Overlay clickable <a> elements for each link annotation on the page.
+  // Positions are percentages of the page, so they stay aligned at any width.
+  function addLinkLayer(page, wrap, cssViewport) {
+    return page.getAnnotations().then(function (annots) {
+      annots.forEach(function (an) {
+        if (an.subtype !== "Link" || !an.rect || !safeUrl(an.url)) return;
+        var r = pdfjsLib.Util.normalizeRect(cssViewport.convertToViewportRectangle(an.rect));
+        var a = document.createElement("a");
+        a.className = "lnk";
+        a.href = an.url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.setAttribute("aria-label", an.url);
+        a.style.left   = (r[0] / cssViewport.width  * 100) + "%";
+        a.style.top    = (r[1] / cssViewport.height * 100) + "%";
+        a.style.width  = ((r[2] - r[0]) / cssViewport.width  * 100) + "%";
+        a.style.height = ((r[3] - r[1]) / cssViewport.height * 100) + "%";
+        wrap.appendChild(a);
+      });
+    }).catch(function (e) { console.warn("Link layer skipped:", e); });
+  }
+
   function renderAll(pdf) {
     reader.innerHTML = "";
-    var containerWidth = Math.min(reader.clientWidth, 900);
+    var containerWidth = contentWidth();
     var chain = Promise.resolve();
     for (var n = 1; n <= pdf.numPages; n++) {
       (function (pageNum) {
@@ -131,18 +170,25 @@
           return pdf.getPage(pageNum).then(function (page) {
             var base = page.getViewport({ scale: 1 });
             var cssScale = containerWidth / base.width;
+            var cssViewport = page.getViewport({ scale: cssScale });
             var viewport = page.getViewport({ scale: cssScale * DPR });
+
+            var wrap = document.createElement("div");
+            wrap.className = "pagewrap";
+            wrap.style.width = Math.floor(cssViewport.width) + "px";
+
             var canvas = document.createElement("canvas");
-            canvas.className = "page";
             canvas.width = Math.floor(viewport.width);
             canvas.height = Math.floor(viewport.height);
-            canvas.style.width = Math.floor(viewport.width / DPR) + "px";
-            canvas.style.height = Math.floor(viewport.height / DPR) + "px";
-            reader.appendChild(canvas);
+            wrap.appendChild(canvas);
+            reader.appendChild(wrap);
+
             return page.render({
               canvasContext: canvas.getContext("2d"),
               viewport: viewport
-            }).promise;
+            }).promise.then(function () {
+              return addLinkLayer(page, wrap, cssViewport);
+            });
           });
         });
       })(n);
@@ -157,12 +203,14 @@
       fail("Something went wrong opening this document. You can still open it directly.", entry.file);
     });
 
-  // Re-render on significant resize so pages stay crisp/fit
-  var rt;
+  // Re-render when the width meaningfully changes (ignores mobile address-bar height jitter)
+  var rt, lastW = reader.clientWidth;
   window.addEventListener("resize", function () {
     clearTimeout(rt);
     rt = setTimeout(function () {
       if (!reader.querySelector("canvas")) return;
+      if (Math.abs(reader.clientWidth - lastW) < 8) return;
+      lastW = reader.clientWidth;
       pdfjsLib.getDocument(entry.file).promise.then(renderAll).catch(function(){});
     }, 350);
   });
